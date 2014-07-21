@@ -21,52 +21,6 @@
 //dpm($agmonth_rows);
 ?>
 <div class="agreservations-calendar"><div class="month-view">
-    <?php if (module_exists('agres_categories')): ?>
-      <table class="agreservations-table" style="float:left; text-align: left;">
-        <tr class="agreservations-calendar">
-          <th class="agreservations-calendar th categories">
-            <?php if (!isset($currentcategory)): ?>
-                <?php  print(l(t('show all categories'), $agrescurrentpath . "/" . $currentselectedmonth, array('attributes' => array('class' => array('agreservations-calendar a categorysel')))) )?> 
-            <?php else: ?>
-                <?php  print(l(t('show all categories'), $agrescurrentpath . "/" . $currentselectedmonth, array('attributes' => array('class' => array('agreservations-calendar a categories')))) )?> 
-            <?php endif; ?>
-          </th>
-          <?php foreach ($categories as $category): ?>
-            <th class="agreservations-calendar th categories">
-              <?php if (isset($currentcategory) && $currentcategory == $category->nid): ?>
-                  <?php  print(l(t($category->title), $agrescurrentpath . "/" . $currentselectedmonth . "/" . $category->nid, array('attributes' => array('class' => array('agreservations-calendar a categorysel')))) )?> 
-              <?php else: ?>
-                  <?php  print(l(t($category->title), $agrescurrentpath . "/" . $currentselectedmonth . "/" . $category->nid, array('attributes' => array('class' => array('agreservations-calendar a categories')))) )?> 
-              <?php endif; ?>
-            </th>
-          <?php endforeach; ?>
-        </tr>
-      </table>
-    <?php endif; ?>
-    <table class="agreservations-table">
-      <tr class="agreservations-calendar">
-        <th class="agreservations-calendar th unittypes">
-          <?php if (!isset($currentunittype)): ?>
-            <?php  print(l(t('show all units'), $agrescurrentpath . "/" . $currentselectedmonth . "/" . $currentcategory, array('attributes' => array('class' => array('agreservations-calendar a unittypessel','agr_unitlink2')))) )?> 
-          <?php else: ?>
-             <?php  print(l(t('show all units'), $agrescurrentpath . "/" . $currentselectedmonth . "/" . $currentcategory, array('attributes' => array('class' => array('agreservations-calendar a unittypes','agr_unitlink2')))) )?> 
-           <?php endif; ?>
-          
-
-        </th>
-        <?php foreach ($unittypes as $unittype): ?>
-          <th class="agreservations-calendar th unittypes">
-            <?php if (isset($currentunittype) && $currentunittype == $unittype->nid): ?>
-                 <?php  print(l(t($unittype->title), $agrescurrentpath . "/" . $currentselectedmonth . "/" . $currentcategory . "/" . $unittype->nid, array('attributes' => array('class' => array('agreservations-calendar a unittypessel','agr_unitlink2')))) )?>
-            <?php else: ?>
-                 <?php  print(l(t($unittype->title), $agrescurrentpath . "/" . $currentselectedmonth . "/" . $currentcategory . "/" . $unittype->nid, array('attributes' => array('class' => array('agreservations-calendar a unittypes','agr_unitlink2')))) )?> 
-            <?php endif; ?>
-            
-
-          </th>
-        <?php endforeach; ?>
-      </tr>
-    </table>
     <table class="agreservations-table"  style="table-layout:fixed">
       <colgroup>
         <col width="20px">
@@ -87,12 +41,16 @@
       <?php if (!empty($roomrow['datebox'])) : ?>
 
       <tr>
-          <td>
+        <?php $weekend = "";
+              if (date('D',strtotime($roomrow['date'])) == 'Sat' || date('D',strtotime($roomrow['date'])) == 'Sun')
+              $weekend = "weekend";
+        ?>
+          <td style="text-align: center" class="<?php print $weekend; ?>">
             <?php print($roomrow['datebox']); ?>
           </td>
         <?php foreach ((array) $units as $unit): ?>
         <?php $roomrow = $agmonth_rows[$unit->title][$no]; ?>
-        <td>
+        <td class="<?php print $weekend; ?>">
           <?php if (!empty($roomrow['data'])) : ?>
           
               <?php foreach ((array) $roomrow['data'] as $key => $roomrowres): ?>
@@ -112,8 +70,9 @@
                   <a href="/agres_view/day/<?php print $roomrow['date'];?>">Mere info</a>
               </div>
           <?php else: ?>
+            <?php //if (date('D',strtotime($roomrow['date'])) !== 'Sat'): ?>
              <?php  print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Reservation','default_agres_date'=>$roomrow['date'] . ' 10:00'),'attributes' => array('class' => array('agrcelllink')))) )?>
-
+           <?php //endif; ?>
           <?php endif; ?>
         </td>
         <?php endforeach; ?>

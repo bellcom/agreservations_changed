@@ -127,7 +127,7 @@ div.agres_item a{
 .agreservations-calendar th a {
   font-weight: bold;
   color: #fff;
-  background-color: #ccc;
+  font-size: 14px;
 }
 .agreservations-calendar td {
   width: 12%; /* 14% is about 1/7 of total table width */
@@ -245,7 +245,7 @@ div.agres_item a{
   font-size:14px;
 }
 table.agreservations-table tbody tr td div.month  {
-  float: right;
+
   text-align: center;
   padding: 0 0 0 0;
   margin: 0;
@@ -631,4 +631,14 @@ border-right-style: solid;
 border-right-color: #944;*/
 /*border-right-width:15px;*/
 
+}
+table.agreservations-table .weekend table tr,
+table.agreservations-table tbody .weekend .month,
+table.agreservations-table tbody .weekend{
+    background-color: #E4E4E4;
+}
+
+table.agreservations-table tbody .weekend{
+
+  border-bottom: 1px solid #fff;
 }

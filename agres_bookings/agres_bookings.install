@@ -48,7 +48,7 @@ function agres_bookings_update_7203() {
  * Implements hook_enable(). 
  */
 function agres_bookings_enable() {
-  $result = db_query("SELECT* from {uc_product_classes} where pcid = 'agreservations_unittype'");
+  /*$result = db_query("SELECT* from {uc_product_classes} where pcid = 'agreservations_unittype'");
   if (!$result->fetchField()) {
     $id = db_insert('uc_product_classes')
       ->fields(array(
@@ -72,5 +72,5 @@ function agres_bookings_enable() {
       uc_product_add_default_image_field('agreservations_unittype');
     }
     menu_rebuild();
-  }
+  }*/
 }

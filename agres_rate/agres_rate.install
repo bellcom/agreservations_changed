@@ -59,7 +59,7 @@ function agres_rate_install() {
  * Implements hook_enable(). 
  */
 function agres_rate_enable() {
-  $result = db_query("SELECT* from {uc_product_classes} where pcid = 'agres_rate'");
+  /*$result = db_query("SELECT* from {uc_product_classes} where pcid = 'agres_rate'");
   if (!$result->fetchField()) {
     $id = db_insert('uc_product_classes')
       ->fields(array(
@@ -83,7 +83,7 @@ function agres_rate_enable() {
       uc_product_add_default_image_field('agres_rate');
     }
     menu_rebuild();
-  }
+  }*/
 }
 /**
  * Implements hook_uninstall().

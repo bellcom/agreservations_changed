@@ -29,47 +29,12 @@
 ?>
 <div class="agreservations-calendar"><div class="week-view">
     <table class="agreservations-table">
-      <thead>
-        <tr class="agreservations-calendar">
-          <th class="agreservations-calendar th categories">
-            <?php if (!isset($currentcategory)): ?>
-                <?php  print(l(t('show all categories'), $agrescurrentpath . "/" . $currentselectedweek, array('attributes' => array('class' => array('agreservations-calendar a categorysel')))) )?> 
-            <?php else: ?>
-                <?php  print(l(t('show all categories'), $agrescurrentpath . "/" . $currentselectedweek, array('attributes' => array('class' => array('agreservations-calendar a categories')))) )?> 
-            <?php endif; ?>
-
-          </th>
-          <?php foreach ($categories as $category): ?>
-            <th class="agreservations-calendar th categories">
-              <?php if (isset($currentcategory) && $currentcategory == $category->nid): ?>
-                  <?php  print(l(t($category->title), $agrescurrentpath . "/" . $currentselectedweek . "/" . $category->nid, array('attributes' => array('class' => array('agreservations-calendar a categorysel')))) )?> 
-              <?php else: ?>
-                  <?php  print(l(t($category->title), $agrescurrentpath . "/" . $currentselectedweek . "/" . $category->nid, array('attributes' => array('class' => array('agreservations-calendar a categories')))) )?> 
-              <?php endif; ?>
-
-            </th>
-          <?php endforeach; ?>
-        </tr>        
-    </table>
-    <table class="agreservations-table">
-      <tr class="agreservations-calendar">
-        <th class="agreservations-calendar th unittypes">
-          <a class="<?php print (!isset($currentunittype)) ? "agreservations-calendar a unittypessel" : "agreservations-calendar a unittypes"; ?>" href="<?php print(base_path() . $agrescurrentpath . "/" . $currentselectedweek . "/" . $currentcategory); ?>"><?php print (t('show all units')); ?></a>
-        </th>
-        <?php foreach ($unittypes as $unittype): ?>
-          <th class="agreservations-calendar th unittypes">
-            <a class="<?php print (isset($currentunittype) && $currentunittype == $unittype->nid) ? "agreservations-calendar a unittypessel" : "agreservations-calendar a unittypes"; ?>" href="<?php print(base_path() . $agrescurrentpath . "/" . $currentselectedweek . "/" . $currentcategory . "/" . $unittype->nid); ?>"><?php print ($unittype->title); ?></a>
-          </th>
-        <?php endforeach; ?>
-      </tr>
-    </table>
-    <table class="agreservations-table">
       <tr>
         <th class="agreservations-calendar"><?php print $by_hour_count > 0 ? t('units') : ''; ?></th>
         <?php foreach ($rows as $diw => $day): ?>
         <?php //foreach ($day_names as $cell): ?>
           <th class="agreservations-calendar">
-            <?php print '<a href ="/agres_view/day/'.$day['date'] . '">'. date('D, d/m',strtotime($day['date'])). '</a>'; ?>
+            <?php print '<a href ="/agres_view/day/'.$day['date'] . '">'.t(date('D',strtotime($day['date']))). " - ". date('d/m',strtotime($day['date'])). '</a>'; ?>
           </th>
         <?php endforeach; ?>
       </tr>
@@ -77,13 +42,17 @@
       <tbody>
         <?php foreach ($units as $unit): ?>
           <tr>
-            <td class="agreservations-calendar">
+            <td class="agreservations-calendar" style="vertical-align: middle">
               <a href="<?php print(base_path()); ?>node/<?php print $unit->nid ?>"><?php print $unit->title ?></a>
               <span class="agreservations-calendar-hour"></span>
             </td>
             <?php foreach ($rows as $diw => $day): ?>
+            <?php $weekend = "";
+              if (date('D',strtotime($day['date'])) == 'Sat' || date('D',strtotime($day['date'])) == 'Sun')
+              $weekend = "weekend";
+            ?>
               <?php if (isset($day['night'][$unit->title])) : ?>
-              <td class="agreservations-calendar-agenda-items">
+              <td class="agreservations-calendar-agenda-items <?php print $weekend; ?>">
                   <div>
                   <?php $start = 8;$i = 0; while($i < 15):?>
 
@@ -116,7 +85,7 @@
                         </div>
                        
                       <?php elseif($field_end_h <= $start || $field_start_h > $start): ?>
-                     <div>
+                     <div style="border-top: 1px solid #ccc;border-collapse: collapse; border-spacing: 0;">
                           <a class="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $day['date'] ?> <?php print $time_str; ?> "> <?php print $time_str; ?> </a>
                       </div>
                         
@@ -128,7 +97,7 @@
                   </div>
               </td>
               <?php else: ?>
-                <td class="agreservations-calendar-agenda-items">
+                <td class="agreservations-calendar-agenda-items <?php print $weekend; ?>">
                   <table>
                   <?php $start = 8;$i = 0; while($i < 15):?>
                     <?php 
