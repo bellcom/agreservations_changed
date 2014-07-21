@@ -44,8 +44,8 @@
         <tr>
 
           <?php foreach ($units as $unit): ?>
-            <th>
-              Dato - <?php print date('d/m/Y', strtotime($rows['date'])); ?>
+            <th><?php print "Uge " . date('W',strtotime($rows['date'])) . '</span>'; ?>
+              <?php print date('d/m/Y', strtotime($rows['date'])); ?>
             </th>
             <th class="agreservations-calendar unitname"><a href="<?php print(base_path()); ?>node/<?php print $unit->nid ?>"><?php print $unit->title ?></a>
             </th>

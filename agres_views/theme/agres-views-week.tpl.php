@@ -30,7 +30,7 @@
 <div class="agreservations-calendar"><div class="week-view">
     <table class="agreservations-table">
       <tr>
-        <th class="agreservations-calendar"><?php print $by_hour_count > 0 ? t('units') : ''; ?></th>
+        <th class="agreservations-calendar"><?php print "Uge " . date('W',strtotime($rows[0]['date'])) . '</span>'; ?><?php //print $by_hour_count > 0 ? t('units') : ''; ?></th>
         <?php foreach ($rows as $diw => $day): ?>
         <?php //foreach ($day_names as $cell): ?>
           <th class="agreservations-calendar">

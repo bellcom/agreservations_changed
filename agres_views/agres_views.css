@@ -245,15 +245,15 @@ div.agres_item a{
   font-size:14px;
 }
 table.agreservations-table tbody tr td div.month  {
-
+  float: right;
   text-align: center;
   padding: 0 0 0 0;
   margin: 0;
   background-color: #fff;
   border: 0px solid #fff;
   border-width: 0 0 0px 0px;
-  clear:both;
-  width:auto;
+  clear: none;
+  width:70%;
   font-size:12px;
 }
 /*  individual node container  */
@@ -642,4 +642,12 @@ table.agreservations-table tbody .weekend{
 table.agreservations-table tbody .weekend{
 
   border-bottom: 1px solid #fff;
+}
+.view-agres-view .date-nav-wrapper .date-prev {
+  left: 0;
+  width: 100px;
+
+}
+.view-agres-view .date-nav-wrapper .date-prev a {
+  margin-left: 0px;
 }

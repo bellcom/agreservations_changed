@@ -46,7 +46,11 @@
               $weekend = "weekend";
         ?>
           <td style="text-align: center" class="<?php print $weekend; ?>">
+            <?php if (date('D',strtotime($roomrow['date'])) == 'Mon'):?>
+            <?php print "<span style='float:left'>Uge " . date('W',strtotime($roomrow['date'])) . '</span>'; ?>
+            <?php endif;?>
             <?php print($roomrow['datebox']); ?>
+
           </td>
         <?php foreach ((array) $units as $unit): ?>
         <?php $roomrow = $agmonth_rows[$unit->title][$no]; ?>
