@@ -2401,7 +2401,7 @@ function agres_categories_node_view($node, $view_mode, $langcode) {
         $weekarg = date_format($tmpdatewarg, "Y-\WW");
         $node->content['bookingcalendarlink'] = array(
             '#prefix' => '<div>',
-            '#markup' => l('Booking Calendar', 'agres_view/week/' . $weekarg),
+            '#markup' => l(t('Se Booking Kalender'), 'agres_view/week/' . $weekarg),
             '#suffix' => '</div>',
             '#weight' => -1,
         );
