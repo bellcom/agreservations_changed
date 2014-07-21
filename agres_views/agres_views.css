@@ -651,3 +651,6 @@ table.agreservations-table tbody .weekend{
 .view-agres-view .date-nav-wrapper .date-prev a {
   margin-left: 0px;
 }
+.passed {
+  background-color: rgb(155, 135, 135);
+}

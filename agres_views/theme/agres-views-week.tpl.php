@@ -28,6 +28,9 @@
 //dsm($items);//currentunittype calendarname
 ?>
 <div class="agreservations-calendar"><div class="week-view">
+    <div>
+      <div class="passed"></div>
+    </div>
     <table class="agreservations-table">
       <tr>
         <th class="agreservations-calendar"><?php print "Uge " . date('W',strtotime($rows[0]['date'])) . '</span>'; ?><?php //print $by_hour_count > 0 ? t('units') : ''; ?></th>
@@ -51,7 +54,7 @@
               if (date('D',strtotime($day['date'])) == 'Sat' || date('D',strtotime($day['date'])) == 'Sun')
               $weekend = "weekend";
             ?>
-              <?php if (isset($day['night'][$unit->title])) : ?>
+              <?php if(count($day['items']) > 0)://if (isset($day['night'][$unit->title])) : ?>
               <td class="agreservations-calendar-agenda-items <?php print $weekend; ?>">
                   <div>
                   <?php $start = 8;$i = 0; while($i < 15):?>
@@ -64,7 +67,10 @@
                       else
                       $time_str = $start . ":00";
                     ?>
-                    <?php foreach ($day['night'][$unit->title] as $itemnid => $unitbookings): ?>
+                    <?php
+                    $booking = array();
+
+                    foreach ($day['night'][$unit->title] as $itemnid => $unitbookings): ?>
 
                     <?php if (isset($day['night'][$unit->title][$itemnid])) : ?>
                     <?php
@@ -75,25 +81,36 @@
                       $field_end_m = date('i',strtotime($field_start[0]['value2']));
 
                       $rowspan = $field_end_h - $field_start_h;
-                      if ($field_end_m) {
+
+                      if ((integer)$field_end_m > 0) {
                         $rowspan += 1;
+                        $field_end_h += 1;
                       }
+
                       ?>
-                      <?php if ($field_start_h == $start):?>
-                        <div class="agreservations-calendar-agenda-items" <?php print isset($spaninfo[$unit->title][$itemnid]) ? "rowspan=" . $spaninfo[$unit->title][$itemnid] : ""; ?> >
-                           <?php print ($day['night'][$unit->title][$itemnid]); ?>
-                        </div>
-                       
-                      <?php elseif($field_end_h <= $start || $field_start_h > $start): ?>
-                     <div style="border-top: 1px solid #ccc;border-collapse: collapse; border-spacing: 0;">
-                          <a class="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $day['date'] ?> <?php print $time_str; ?> "> <?php print $time_str; ?> </a>
-                      </div>
-                        
-                      <?php endif; ?>
+                      <?php if ($field_start_h == $start) {
+                        $booking = array(
+                          'nid' => $itemnid,
+                          'start_h' => $field_start_h,
+                          'end_h' => $field_end_h,
+                          'rowspan' => $rowspan,
+                        );
+                        }?>
                     <?php endif; ?>
                     <?php endforeach; ?>
 
-                  <?php $start += 1; $i += 1; endwhile;?>
+                    <?php if(empty($booking)): ?>
+                     <div style="border-top: 1px solid #ccc;border-collapse: collapse; border-spacing: 0;">
+                          <a class="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $day['date'] ?> <?php print $time_str; ?> "> <?php print $time_str; ?> </a>
+                      </div>
+                     <?php $rpan = 1;?>
+                     <?php else: ?>
+                        <div class="agreservations-calendar-agenda-items" <?php print isset($spaninfo[$unit->title][$itemnid]) ? "rowspan=" . $spaninfo[$unit->title][$booking['nid']] : ""; ?> >
+                           <?php print ($day['night'][$unit->title][$booking['nid']]); ?>
+                        </div>
+                     <?php $rpan = $booking['rowspan'];?>
+                     <?php endif;?>
+                  <?php $start += $rpan; $i += $rpan; endwhile;?>
                   </div>
               </td>
               <?php else: ?>

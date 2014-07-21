@@ -923,7 +923,7 @@ function template_preprocess_agres_views_day_old(&$vars) {
 function template_preprocess_agres_views_week(&$vars) {
   // Add in all the $vars added by the main calendar preprocessor.
   if ($vars['view']->name == 'agres_view') {
-    $vars['view']->style_with_weekno = FALSE;
+    $vars['view']->style_with_weekno = TRUE;
     $view = $vars['view'];
     $rows = $vars['rows'];
     $agrrows = $vars['rows'];
@@ -1000,18 +1000,20 @@ function template_preprocess_agres_views_week(&$vars) {
     $ff = 0;
     // Initialize vars teststring
     $vars['rinfo'] = array();
+
     foreach ($rows[0] as $weekno => $row) {
       $vars['rows'][$weekno] = $row['data'];
       foreach ($row['data']['items'] as $ikey => $item) {
         ksort($item);
+
         foreach ($item as $skey => $singlereservation) {
 
           $date = new DateObject($singlereservation->field['value'], $singlereservation->field['timezone_db'], NULL);
           $date->setTimezone(timezone_open(date_default_timezone()));
-
           $tmpunititems = array();
           // Rooms per reservation pick
           $tmpunititems = _agreservations_get_unitn_for_reservation_node($singlereservation->nid);
+
           foreach ($units as $unit) {
 
             // Checks if unit is a booked item:
@@ -1031,29 +1033,20 @@ function template_preprocess_agres_views_week(&$vars) {
               }
 
               if (( ($pos2 === FALSE)) || (($pos !== FALSE) && ($pos2 !== FALSE))) {
-                $row['data']['all_day'][$unit->title] = $singlereservation;
+
+                $row['data']['all_day'][$unit->title][$singlereservation->nid] = $singlereservation;
+
               }
             }
           }
         }
       }
+
       reset($row['data']['all_day']);
       ksort($row['data']['all_day']);
 
-
       $rowcopy = $row['data']['all_day'];
-      $row['data']['all_day'] = array();
-      foreach ($rowcopy as $ikey => $singlereservation) {
-        $tmpunititems = array();
-        // Rooms per reservation pick
-        $tmpunititems = _agreservations_get_unitn_for_reservation_node($singlereservation->nid);
 
-        foreach ($units as $unit) {
-          if (in_array($unit->nid, $tmpunititems)) {
-            $row['data']['all_day'][$unit->title] = $singlereservation;
-          }
-        }
-      }
       $columns[] = $weekno;
       foreach ($units as $unit) {
         // Initialize $grouped_items
@@ -1062,7 +1055,8 @@ function template_preprocess_agres_views_week(&$vars) {
         $start_time = array_shift($start_times);
         $next_start_time = count($start_times) ? array_shift($start_times) : $end_start_time;
         ksort($row['data']['all_day']);
-        foreach ($row['data']['all_day'] as $key => $item) {
+        foreach ($row['data']['all_day'] as $key => $items) {
+          foreach ($items as $item){
           $temp_end = date_create($item->row->field_field_agres_rdate[0]['raw']['value2']);
           $temp_granularity_end = date_create(date_format($view->date_info->max_date, DATE_FORMAT_DATETIME));
           if ($temp_end > $temp_granularity_end) {
@@ -1099,6 +1093,7 @@ function template_preprocess_agres_views_week(&$vars) {
           );
           // Units per reservation
           $tmpunititems = _agreservations_get_unitn_for_reservation_node($item->nid);
+
           // Unit is in booked item
           if ($unit->title === $key) {
             if ((!isset($vars['rinfo'][$unit->title][$item->nid]))) {
@@ -1112,6 +1107,7 @@ function template_preprocess_agres_views_week(&$vars) {
             }
           }
           $item_count++;
+        }
         }
 
         foreach ($row['data']['items'] as $time => $items) {
