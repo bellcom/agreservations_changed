@@ -1,0 +1,23 @@
+name = Agreservations Bookingmodes
+description = Adds Booking Mode Classes
+package = Agreservations - Online Bookings
+core = 7.x
+
+dependencies[] = list
+dependencies[] = agreservations
+dependencies[] = agres_bookings
+dependencies[] = agres_categories
+dependencies[] = i18n
+
+files[] = agres_bm.install
+files[] = agres_bm.module
+files[] = includes/agres_bm.inc
+files[] = includes/agres_bm_3.inc
+files[] = includes/agres_bm_4.inc
+
+; Information added by Drupal.org packaging script on 2014-06-28
+version = "7.x-3.x-dev"
+core = "7.x"
+project = "agreservations"
+datestamp = "1403984329"
+

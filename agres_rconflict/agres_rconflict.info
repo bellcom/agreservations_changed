@@ -1,0 +1,12 @@
+name = Agreservations Resource Conflict
+description = Checks for Conflicts of booked units, and prevents booking on conflict. Based on Resource Conflict module by deviantintegral
+package = Agreservations - Core
+core = 7.x
+
+files[] = agres_rconflict.module
+; Information added by Drupal.org packaging script on 2014-06-28
+version = "7.x-3.x-dev"
+core = "7.x"
+project = "agreservations"
+datestamp = "1403984329"
+

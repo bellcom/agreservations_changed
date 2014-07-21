@@ -1,0 +1,1850 @@
+<?php
+
+/**
+ * @file
+ * agreservations.module in simple words: using calendar
+ * module to show a bookingcalendar (weekview of calendar) AND prepare
+ * for making onlinebookings of resources
+ *
+ * @author Andreas Gill <andreas.gill@agreservations.com>
+ */
+require_once('./' . drupal_get_path('module', 'agreservations') . '/includes/agres_funcs.inc');
+
+// agreservations status options.
+define('AGRES_STATUS_ONLINE_NO_ORDER_YET', 1);
+define('AGRES_STATUS_ONLINE_ORDER_CREATED', 2);
+define('AGRES_STATUS_NO_ORDER', 3);
+define('AGRES_STATUS_ADMIN_ORDER', 4);
+define('AGRES_STATUS_AVAILABILITY_BLOCK', 5);
+
+/**
+ * Implement hook_views_api().
+ */
+function agreservations_views_api($module, $api) {
+  if ($module == 'views' && $api == 'views_default') {
+    return array('version' => 3);
+  }
+}
+
+/**AGR
+ * Implements hook_init().
+ */
+function agreservations_init() {
+  drupal_add_css(drupal_get_path('module', 'agreservations') . '/agreservations.css');
+//   module_load_include('inc', 'node', 'node.pages');
+}
+/**
+* Implements hook_token_info().
+*/
+//function agreservations_token_info() { 
+//  $info['tokens']['node']['agr_reservation_date'] = array(
+//    'name' => t('AGR Reservation Date'),
+//    'description' => t('Returns the Venue city (Location)'),
+//  );
+//
+//  return
+//$info;
+//} 
+/**
+ * Implements hook_permission().
+ */
+function agreservations_permission() {
+  return array(
+    'configure agreservations' => array(
+      'title' => t('configure agreservations'),
+      'description' => t('TODO Add a description for \'configure agreservations\''),
+    ),
+    'view agreservations Resources' => array(
+      'title' => t('view agreservations Resources'),
+      'description' => t('Allow viewing the Resources'),
+    ),
+    'view agresbookings search results' => array(
+      'title' => t('view agres_bookings search results'),
+      'description' => t('TODO Add a description for \'view agres_bookings search results\''),
+    ),
+  );
+}
+
+/**
+ * Return an array of nids of reserved rooms/units from a single reservation:
+ */
+function _agreservations_get_unitn_for_reservation_node($paramnid) {
+  $bookedunitnids = array();
+  $query = db_select('node', 'n');
+  $query->fields('n', array('nid', 'title', 'status'));
+//      $query->condition('type', 'agreservation');
+  $query->innerJoin('field_data_field_agres_ref_unit', 'faru', 'n.nid = faru.entity_id', array());
+  $query->leftJoin('node', 'n2', 'n2.nid = faru.field_agres_ref_unit_nid', array());
+  $query->addField('faru', 'field_agres_ref_unit_nid', 'refunitid');
+  $query->where('n.nid = :pnid', array(':pnid' => $paramnid));
+  $query->orderBy('field_agres_ref_unit_nid', 'ASC');
+  $res = $query->execute();
+  while ($bookedunit = $res->fetchObject()) {
+    $bookedunitnids[] = $bookedunit->refunitid; //$unititem;
+  }
+  return $bookedunitnids;
+}
+function _agreservations_get_capacity_from_reservation($paramnid){
+  $bookedunitnids = array();
+  $query = db_select('node', 'n');
+  $query->fields('n', array('nid', 'title', 'status'));
+  $query->innerJoin('field_data_field_agres_ref_unit', 'faru', 'n.nid = faru.entity_id', array());
+  $query->leftJoin('node', 'n2', 'n2.nid = faru.field_agres_ref_unit_nid', array());
+  $query->addField('faru', 'field_agres_ref_unit_nid', 'refunitid');
+  $query->where('n.nid = :pnid', array(':pnid' => $paramnid));
+  $query->orderBy('field_agres_ref_unit_nid', 'ASC');
+  $res = $query->execute();
+  $capacity = 0;
+  
+  while ($bookedunit = $res->fetchObject()) {
+      $nodeunit = node_load($bookedunit->refunitid);
+      $lang = 'und';
+      $lang = field_language('node', $nodeunit, 'field_agreservations_unittype'); 
+      $nodeunittype = node_load($nodeunit->field_agreservations_unittype[$lang][0]['nid']);
+      $langc = 'und';
+      $langc = field_language('node', $nodeunittype, 'field_agreservations_capacity');
+    $capacity +=  intval($nodeunittype->field_agreservations_capacity[$langc][0]['value']);
+//    drupal_set_message('<pre>_agreservations_get_capacity_from_reservation_agreservations_get_capacity_from_reservation'.print_r($capacity,true).'</pre>');
+  }   
+  return $capacity;
+}
+/**
+ * Return an array of nids of reserved unit types from a single reservation:
+ */
+function _agreservations_get_unittypes_for_rnode($paramnid) {
+  $bookedunitnids = array();
+  $query = db_select('node', 'n');
+  $query->fields('n', array('nid', 'title', 'status'));
+  $query->innerJoin('field_data_field_agres_ref_unit', 'faru', 'n.nid = faru.entity_id', array());
+  $query->leftJoin('node', 'n2', 'n2.nid = faru.field_agres_ref_unit_nid', array());
+  $query->addField('faru', 'field_agres_ref_unit_nid', 'refunitid');
+  $query->where('n.nid = :pnid', array(':pnid' => $paramnid));
+  $query->orderBy('field_agres_ref_unit_nid', 'ASC');
+  $res = $query->execute();
+  while ($bookedunit = $res->fetchObject()) {
+    $bookedunitnids[] = $bookedunit->refunitid; //$unititem;
+  }
+  return $bookedunitnids;
+}
+
+/**
+ *  Function to get the unitnames:
+ *
+ */
+function _agreservations_get_unitnodes($nidunittype = NULL) {
+//  $info = field_info_field_by_id('field_agreservations_unitnumber');
+  if (!$nidunittype) {
+    // TODO Please convert this statement to the D7 database API syntax.
+//  $res = db_query("SELECT n.nid AS unitnid, n.title AS title,ctau.entity_id ,ctau.field_agreservations_unitnumber_value, ctaut.field_agreservations_unittype_nid FROM {node} n INNER JOIN {field_data_field_agreservations_unitnumber} ctau ON n.nid = ctau.entity_id INNER JOIN {field_data_field_agreservations_unittype} ctaut ON ctaut.entity_id =  ctau.entity_id WHERE n.status = 1 AND n.type = 'agreservations_unit' ORDER BY ctau.field_agreservations_unitnumber_value");
+    $query = db_select('node', 'n');
+    $query->fields('n', array('nid', 'title'));
+    $query->condition('type', 'agreservations_unit');
+    $query->innerJoin('field_data_field_agreservations_unitnumber', 'fau', 'n.nid = fau.entity_id', array());
+    $query->addField('fau', 'field_agreservations_unitnumber_value');
+    $query->orderBy('field_agreservations_unitnumber_value', 'ASC');
+    $res = $query->execute();
+  }
+  else {
+    // TODO Please convert this statement to the D7 database API syntax.
+//    $res = db_query(db_rewrite_sql("SELECT n.nid AS unitnid, n.title AS title,ctau.nid ,ctau.$fieldname_field_agreservations_unitnumber, ctaut.$fieldname_field_agreservations_unittype FROM {node} n INNER JOIN {" . $tablename_field_agreservations_unitnumber . "} ctau ON n.nid= ctau.nid INNER JOIN {" . $tablename_field_agreservations_unittype . "} ctaut ON ctaut.nid =  ctau.nid WHERE n.status = 1 and n.type = 'agreservations_unit' AND ctaut.$fieldname_field_agreservations_unittype = %d ORDER BY ctau.$fieldname_field_agreservations_unitnumber"), $nidunittype);    
+    $query = db_select('node', 'n');
+    $query->fields('n', array('nid', 'title'));
+    $query->condition('type', 'agreservations_unit');
+    $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+    $query->where('faut.field_agreservations_unittype_nid = :unittype', array(':unittype' => $nidunittype));
+    $res = $query->execute();
+  }
+  $units = array();
+
+  while ($unititem = $res->fetchObject()) {
+    $units[$unititem->nid] = node_load($unititem->nid); //$unititem;
+  //
+  }
+
+  return $units;
+}
+
+/**
+ *  Function to get the unittypes:
+ *
+ */
+function _agreservations_get_unittypenodes() {
+
+  $unittypes = array();
+
+  $query = db_select('node', 'n');
+  $query->fields('n', array('nid', 'title'));
+  $query->condition('type', 'agreservations_unittype');
+  $query->innerJoin('field_data_field_agreservations_capacity', 'faut', 'n.nid = faut.entity_id', array());
+  $query->addField('faut', 'field_agreservations_capacity_value');
+  $query->orderBy('field_agreservations_capacity_value', 'ASC');
+  $res = $query->execute();
+
+  while ($unittypeitem = $res->fetchObject()) {
+    $unittypes[$unittypeitem->nid] = $unittypeitem; //node_load($unittypeitem->nid); //$unititem;
+  }
+
+  return $unittypes;
+}
+
+/**
+ * Implements hook_views_pre_view().
+ */
+function agreservations_views_pre_view(&$view, &$display_id, &$args) {
+  $output = '';
+  switch ($view->name) {
+    case 'units':
+      $output = l(t('Add Unit'), 'node/add/agreservations-unit');
+      break;
+    case 'unit_types':
+      $output = l(t('Add Unit Type'), 'node/add/agreservations-unittype');
+      break;
+    case 'categories':
+      $output = l(t('Add Category'), 'node/add/agres-category');
+      break;
+    case 'agres_timeframe':
+      $output = l(t('Add Timeframe'), 'node/add/agres-timeframe');
+      break;
+    case 'agres_rate':
+      $output = l(t('Add Rate'), 'node/add/agres-rate');
+      break;
+    case 'agres_places':
+      $output = l(t('Add Place'), 'node/add/agres-place');
+      break;  
+    case 'agres_packages':
+      $output = l(t('Add Package'), 'node/add/agres-package');
+      break;    
+  }
+
+  $view->attachment_after = $output;
+}
+
+
+
+/**
+ * Implements hook_node_validate().
+ */
+function agreservations_node_validate($node, $form, &$form_state) {
+  if ($node->type == 'agreservation') {
+    $tlangs1 = array();
+    $alllangs = array();
+    $tlangs1 = language_list();
+    $alllangs = array_merge($tlangs1, array('und' => ''));
+    $alllangs = array_keys($alllangs);
+    
+    $lang = 'und';
+    $lang = field_language('node', $node, 'field_agres_ref_ut');
+
+    $unittypenid = 0;
+    $unitnodes = array();
+    
+    $dateTimezone1 = new DateTimeZone(date_default_timezone());
+    $langt = 'und';
+    $langt = field_language('node', $node,'field_agres_rdate');
+    $dateTime1 = new DateTime($node->field_agres_rdate[$langt][0]['value'], $dateTimezone1);
+    $dateTime2 = new DateTime($node->field_agres_rdate[$langt][0]['value2'], $dateTimezone1);
+    $offset = $dateTime1->getOffset();
+    $offset = $offset * 1;
+    $dateTime1->modify($offset . 'seconds');
+    $dateTime2->modify($offset . 'seconds');    
+   if (variable_get('agres_createresmode', 'unit') == 'unit_type') {
+//     drupal_set_message('<pre>agreservations_node_validate5555:'.print_r($form_state['input']['field_agr_unit_type'][$node->path['language']],true).'</pre>');  
+    if (isset($node->field_agr_unit_type) && isset($node->field_agr_unit_type['#value'])){
+//      drupal_set_message('<pre>agreservations_node_validate5555:'.print_r($node,true).'</pre>');  
+      $unittype = node_load($form_state['input']['field_agr_unit_type'][$node->path['language']]);
+//      drupal_set_message('<pre>agreservations_node_validate5555:'.print_r($unittype,true).'</pre>');  
+    $langc = 'und';
+    $langc = field_language('node',$unittype,'field_agres_ref_category');
+    if (isset($form_state['values']['field_agres_ref_unit'])) {
+      foreach($form_state['values']['field_agres_ref_unit'] as $krup => $rup ){
+        foreach($form_state['values']['field_agres_ref_unit'][$krup] as $krupi => $rup_inner){
+          $form_state['values']['field_agres_ref_unit'][$krup][$krupi] = '';
+        }
+            }    
+
+    }
+
+         $reservable_units = agreservations_get_reservable_items('agreservations_unit', $dateTime1->format('Y-m-d H:i'), $dateTime2->format('Y-m-d H:i'), $unittype->field_agres_ref_category[$langc][0]['nid']);
+         $defaultlang = i18n_langcode();
+//         drupal_set_message('<pre>agreservations_node_validate5555:'.print_r($node->path['language'],true).'</pre>');  
+         foreach($reservable_units as $kru => $reservable_unit) {
+           $langu = 'und';
+           $langu = field_language('node', $reservable_unit, 'field_agreservations_unittype');
+//           drupal_set_message('<pre>agreservations_node_validate:'.print_r($reservable_unit,true).'</pre>');
+           foreach($reservable_unit->field_agreservations_unittype[$langu] as $kruut => $ruut) {
+             if ($unittype->nid == $reservable_unit->field_agreservations_unittype[$langu][$kruut]['nid'] ) {               
+                $form_state['values']['field_agres_ref_unit'] = array($node->path['language'] => Array(Array('nid' => $reservable_unit->nid) ));
+                break;//reserve only 1 while we not have a field where the user enters number of units to book.               
+             }
+           }
+           break;
+         }
+//          drupal_set_message('<pre>immer4444:'.print_r($form_state['values']['field_agres_ref_unit'],true).'</pre>');
+
+    }
+   }   
+  
+    foreach ($alllangs as $lang) {
+      if (isset($node->field_agres_rdate[$lang])) {
+        $dateTimezone1 = new DateTimeZone(date_default_timezone());
+        $strtmpdat1 = $node->field_agres_rdate[$lang][0]['value'];
+        $strtmpdat2 = $node->field_agres_rdate[$lang][0]['value2'];
+
+      }
+    }
+  }
+}
+
+
+
+function _agreservations_find_agreservationinfo($nid, $unitnid) {
+  $field = content_fields('field_agres_ref_agreservation');
+  $db_info = content_database_info($field);
+  $fieldname_agres_ref_agreservation = $db_info['columns']['nid']['column'];
+  $tablename_agres_ref_agreservation = $db_info['table'];
+  $field = content_fields('field_agres_refsingle_unit');
+  $db_info = content_database_info($field);
+  $fieldname_agres_refsingle_unit = $db_info['columns']['nid']['column'];
+  $tablename_agres_refsingle_unit = $db_info['table'];
+
+  $query = db_select('node', 'n')
+    ->fields('n', array('nid'))
+    ->fields('ctauira', array($fieldname_agres_ref_agreservation))
+    ->fields('ctauiru', array($fieldname_agres_refsingle_unit))
+    ->join($tablename_agres_ref_agreservation, 'ctauira', 'n.nid = ctauira.nid')
+    ->join($tablename_agres_refsingle_unit, 'ctauiru', 'ctauira.nid = ctauiru.nid')
+    ->condition('n.status', 1)
+    ->condition('n.type', 'agreservation_unit_info')
+    ->condition('ctauira.' . $fieldname_agres_ref_agreservation, $nid)
+    ->condition('ctauiru.' . $fieldname_agres_refsingle_unit, $unitnid)
+    ->orderBy('ctauiru.' . $fieldname_agres_refsingle_unit, 'asc')
+    ->execute();
+ 
+  $unitinfos = array();
+  foreach ($query as $unitinfo) {
+    $unitinfos[$unitinfo->nid] = $unitinfo;
+  }
+  return $unitinfos;
+}
+
+
+
+function _agreservations_form_additional_submit($form, $form_state){
+//  drupal_set_message('<pre>_agreservations_form_additional_submit3333: '.print_r($form,true).'</pre>');
+}
+/**
+ * Implements hook_form_alter().
+ */
+function agreservations_form_alter(&$form, &$form_state, $form_id) {
+  if (isset($form['type']['#value'])) {
+    if ($form['type']['#value'] == 'agreservation') {
+      if (isset($_REQUEST['default_agres_date'])) {
+        $tmpdate = $_REQUEST['default_agres_date'];
+        $dateTimezone1 = new DateTimeZone(date_default_timezone());
+        $dateTime1 = new DateTime($tmpdate, $dateTimezone1);
+        $offset = $dateTime1->getOffset();
+        $offset = $offset * -1;
+        $dateTime1->modify($offset . 'seconds');
+        $form['field_agres_rdate'][$form['field_agres_rdate']['#language']][0]['#default_value'] = array(
+          'value' => $dateTime1->format('Y-m-d H:i:s'),
+          'value2' => $dateTime1->format('Y-m-d H:i:s'),
+        );
+      }
+      if (isset($_REQUEST['agres_sel_unit'])) {
+        $tmpselunit = $_REQUEST['agres_sel_unit'];
+        $form['field_agres_ref_unit'][$form['field_agres_ref_unit']['#language']]['#default_value'] = $_REQUEST['agres_sel_unit'];
+      }
+      if (isset($_REQUEST['default_agres_title'])) {
+        $tmpselunit = $_REQUEST['default_agres_title'];
+        $form['title']['#default_value'] = $_REQUEST['default_agres_title'];
+      }
+
+
+      //check if setting: agres_createresmode is unit_type in the agreservations settings
+      if (variable_get('agres_createresmode', 'unit') == 'unit_type') {
+        //if setting is on, hide the unit selection dropdown and replace with
+        //unit type selection:
+        $allunitypes = array();
+        $allunitypes = _agreservations_get_unittypenodes();
+        $form['field_agres_ref_unit']['#attributes']['style'][] = 'display:none;';
+      } else {
+        $form['field_agr_unit_type']['#attributes']['style'][] = 'display:none;';
+      }
+    
+    }
+  }
+}
+function agreservations_get_reservable_items_nids($content_type, $start, $end, $cat = NULL) {  
+  $conflict_types = variable_get("rc_types", array(1 => 'agreservation'));
+  $searchrctype = array_search("agreservation", $conflict_types);
+  if ($searchrctype < 1) {
+    $conflict_types[] = 'agreservation';
+  }
+           $dateTimezone = new DateTimeZone(variable_get('date_default_timezone', date_default_timezone_get()));
+           $date_start_timezone = new DateTime($start, $dateTimezone);
+           $offset = $date_start_timezone->getOffset();
+           //we have to subtract the offset, to have proper values to compare for overlaps in ...          
+           $offset = $offset*-1; 
+           //..._agres_rconflict_get_overlaps//
+           $date_start_timezone->modify($offset.'seconds');
+           
+           $date_end_timezone = new DateTime($end, $dateTimezone);
+           $offset = $date_end_timezone->getOffset();
+           $offset = $offset*-1;
+           $date_end_timezone->modify($offset.'seconds');   
+  
+  $field = 'field_agres_rdate';
+  $conflictnids = _agres_rconflict_get_overlaps($date_start_timezone, $date_end_timezone);
+//  drupal_set_message('<pre>__________________________dfgv '.print_r($conflictnids,true).'   </pre>');
+  $unreservableunits = array();
+  if (count($conflictnids) > 0) {
+    foreach ($conflictnids as $key => $conflictnid) {
+      $tmpnode = node_load($conflictnid, NULL, TRUE);
+      $unresunitsofreservation[$conflictnid] = _agreservations_get_unitn_for_reservation_node($conflictnid);
+      foreach ($unresunitsofreservation[$conflictnid] as $unreservableunit) {
+        $unreservableunits[$unreservableunit] = $unreservableunit;
+        
+      }
+    }
+//      drupal_set_message('<pre>__________________________dfgv '.print_r($unreservableunits,true).'   </pre>');
+    if (count($unreservableunits) == 0) {
+       
+//    $res = db_query(db_rewrite_sql("SELECT n.nid AS unitnid, n.title AS title,ctau.nid ,ctau.$fieldname_field_agreservations_unitnumber, ctaut.$fieldname_field_agreservations_unittype FROM {node} n INNER JOIN {" . $tablename_field_agreservations_unitnumber . "} ctau ON n.nid= ctau.nid INNER JOIN {" . $tablename_field_agreservations_unittype . "} ctaut ON ctaut.nid =  ctau.nid WHERE n.status = 1 and n.type = 'agreservations_unit' AND ctaut.$fieldname_field_agreservations_unittype = %d ORDER BY ctau.$fieldname_field_agreservations_unitnumber"), $nidunittype);    
+      $query = db_select('node', 'n');
+      $query->fields('n', array('nid', 'title'));
+      $query->condition('type', 'agreservations_unit');
+      $query->innerJoin('field_data_field_agreservations_unitnumber', 'faun', 'n.nid = faun.entity_id', array());
+      $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+      $query->addField('faun', 'field_agreservations_unitnumber_value');
+      $query->addField('faut', 'field_agreservations_unittype_nid');
+      $query->addTag('node_access');
+      $query->where('n.status = 1');
+      $query->orderBy('n.title', 'ASC');
+      $res = $query->execute();
+    }
+    else {
+      $comma_separated_unreservableunits = implode(",", $unreservableunits);
+    
+      $query = db_select('node', 'n');
+      $query->fields('n', array('nid', 'title'));
+      $query->condition('type', 'agreservations_unit');
+      $query->innerJoin('field_data_field_agreservations_unitnumber', 'faun', 'n.nid = faun.entity_id', array());
+      $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+      $query->addField('faun', 'field_agreservations_unitnumber_value');
+      $query->addField('faut', 'field_agreservations_unittype_nid');
+      $query->where("n.nid NOT IN ($comma_separated_unreservableunits) AND n.status = 1");
+      $query->orderBy('n.title', 'ASC');
+      $query->addTag('node_access');
+      $res = $query->execute();
+    }
+  }
+  else {
+    $query = db_select('node', 'n');
+    $query->fields('n', array('nid', 'title'));
+    $query->condition('type', 'agreservations_unit');
+    $query->innerJoin('field_data_field_agreservations_unitnumber', 'faun', 'n.nid = faun.entity_id', array());
+    $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+    $query->addField('faun', 'field_agreservations_unitnumber_value');
+    $query->addField('faut', 'field_agreservations_unittype_nid');
+    $query->addTag('node_access');
+    $query->where('n.status = 1');
+    $query->orderBy('n.title', 'ASC');
+    $res = $query->execute();
+  }
+  $availableunits = array();
+
+  if (module_exists('agres_categories') && isset($cat)) {
+    while ($unititem = $res->fetchObject()) {      
+       if (_agres_categories_unittype_has_cat($unititem->field_agreservations_unittype_nid, $cat)) {       
+         $unode = node_load($unititem->nid);
+         $availableunits[$unode->nid] = $unode->nid; //$unititem;
+       }
+      
+    }
+  }
+  else {
+
+   while ($unititem = $res->fetchObject()) { 
+      $node = node_load($unititem->nid);
+      $availableunits[$node->nid] = $node->nid;
+    }
+  }
+//  drupal_set_message('<pre>agres_categories_get_details_form_validate:::++fdd++___----'. print_r($availableunits, true) . '</pre>');
+//   drupal_set_message('<pre>__________availables________________dfgv '.print_r($availableunits,true).'   </pre>');
+  return $availableunits;
+}
+   /**
+ * agreservations_get_reservable_items: returns array of reservable unit nodes.
+ *
+ * @author     Andreas Gill
+ * @param      $content_type normally this is agreservations_unit.
+ * @param      $start   start time
+ * @param      $end    end time
+ * @param      $cat category to filter, if categories submodule is enabled.
+ * @return     TRUE oder FALSE
+ */
+function agreservations_get_reservable_items($content_type, $start, $end, $cat = NULL) {  
+     
+  $conflict_types = variable_get("rc_types", array(1 => 'agreservation'));
+  $searchrctype = array_search("agreservation", $conflict_types);
+  if ($searchrctype < 1) {
+    $conflict_types[] = 'agreservation';
+  }
+           $dateTimezone = new DateTimeZone(variable_get('date_default_timezone', date_default_timezone_get()));
+           $date_start_timezone = new DateTime($start, $dateTimezone);
+           $offset = $date_start_timezone->getOffset();
+           //we have to subtract the offset, to have proper values to compare for overlaps in ...          
+           $offset = $offset*-1; 
+           //..._agres_rconflict_get_overlaps//
+           $date_start_timezone->modify($offset.'seconds');
+           
+           $date_end_timezone = new DateTime($end, $dateTimezone);
+           $offset = $date_end_timezone->getOffset();
+           $offset = $offset*-1;
+           $date_end_timezone->modify($offset.'seconds');   
+  
+  $field = 'field_agres_rdate';
+  $conflictnids = _agres_rconflict_get_overlaps($date_start_timezone, $date_end_timezone);
+//  drupal_set_message('<pre>__________________________dfgv '.print_r($conflictnids,true).'   </pre>');
+  $unreservableunits = array();
+  if (count($conflictnids) > 0) {
+    foreach ($conflictnids as $key => $conflictnid) {
+      $tmpnode = node_load($conflictnid, NULL, TRUE);
+      $unresunitsofreservation[$conflictnid] = _agreservations_get_unitn_for_reservation_node($conflictnid);
+      foreach ($unresunitsofreservation[$conflictnid] as $unreservableunit) {
+        $unreservableunits[$unreservableunit] = $unreservableunit;
+        
+      }
+    }
+//      drupal_set_message('<pre>__________________________dfgv '.print_r($unreservableunits,true).'   </pre>');
+    if (count($unreservableunits) == 0) {
+       
+//    $res = db_query(db_rewrite_sql("SELECT n.nid AS unitnid, n.title AS title,ctau.nid ,ctau.$fieldname_field_agreservations_unitnumber, ctaut.$fieldname_field_agreservations_unittype FROM {node} n INNER JOIN {" . $tablename_field_agreservations_unitnumber . "} ctau ON n.nid= ctau.nid INNER JOIN {" . $tablename_field_agreservations_unittype . "} ctaut ON ctaut.nid =  ctau.nid WHERE n.status = 1 and n.type = 'agreservations_unit' AND ctaut.$fieldname_field_agreservations_unittype = %d ORDER BY ctau.$fieldname_field_agreservations_unitnumber"), $nidunittype);    
+      $query = db_select('node', 'n');
+      $query->fields('n', array('nid', 'title'));
+      $query->condition('type', 'agreservations_unit');
+      $query->innerJoin('field_data_field_agreservations_unitnumber', 'faun', 'n.nid = faun.entity_id', array());
+      $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+      $query->addField('faun', 'field_agreservations_unitnumber_value');
+      $query->addField('faut', 'field_agreservations_unittype_nid');
+      $query->addTag('node_access');
+      $query->where('n.status = 1');
+      $query->orderBy('n.title', 'ASC');
+      $res = $query->execute();
+    }
+    else {
+      $comma_separated_unreservableunits = implode(",", $unreservableunits);
+    
+      $query = db_select('node', 'n');
+      $query->fields('n', array('nid', 'title'));
+      $query->condition('type', 'agreservations_unit');
+      $query->innerJoin('field_data_field_agreservations_unitnumber', 'faun', 'n.nid = faun.entity_id', array());
+      $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+      $query->addField('faun', 'field_agreservations_unitnumber_value');
+      $query->addField('faut', 'field_agreservations_unittype_nid');
+      $query->where("n.nid NOT IN ($comma_separated_unreservableunits) AND n.status = 1");
+      $query->orderBy('n.title', 'ASC');
+      $query->addTag('node_access');
+      $res = $query->execute();
+    }
+  }
+  else {
+    $query = db_select('node', 'n');
+    $query->fields('n', array('nid', 'title'));
+    $query->condition('type', 'agreservations_unit');
+    $query->innerJoin('field_data_field_agreservations_unitnumber', 'faun', 'n.nid = faun.entity_id', array());
+    $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'n.nid = faut.entity_id', array());
+    $query->addField('faun', 'field_agreservations_unitnumber_value');
+    $query->addField('faut', 'field_agreservations_unittype_nid');
+    $query->addTag('node_access');
+    $query->where('n.status = 1');
+    $query->orderBy('n.title', 'ASC');
+    $res = $query->execute();
+  }
+  $availableunits = array();
+
+  if (module_exists('agres_categories') && isset($cat)) {
+    while ($unititem = $res->fetchObject()) {      
+       if (_agres_categories_unittype_has_cat($unititem->field_agreservations_unittype_nid, $cat)) {       
+         $unode = node_load($unititem->nid);
+         $availableunits[] = $unode; //$unititem;
+       }
+      
+    }
+  }
+  else {
+
+   while ($unititem = $res->fetchObject()) { 
+      $node = node_load($unititem->nid);
+      $availableunits[] = $node;
+    }
+  }
+//  drupal_set_message('<pre>dagreservations_get_reservable_items***nochda__'.print_r($availableunits,true).'</pre>'); 
+//  drupal_set_message('<pre>agres_categories_get_details_form_validate:::++fdd++___----'. print_r($availableunits, true) . '</pre>');
+//   drupal_set_message('<pre>__________availables________________dfgv '.print_r($availableunits,true).'   </pre>');
+  return $availableunits;
+}
+
+/* * This function returns an array of reservable unittypes in the */
+
+/**
+ *
+ */
+function _agreservations_get_reservable_unittypes($nodesarray, $simple) {
+  $availableunittypes = array();
+  $availableunittypesnids = array();
+//  drupal_set_message('<pre>_agreservations_get_reservable_unittypes:::'.print_r($nodesarray,true).'</pre>');
+  if ($simple == TRUE) {
+    foreach ($nodesarray as $tmpnode) {
+      foreach ($tmpnode->field_agreservations_unittype as $langunittype) {
+        foreach ($langunittype as $k => $singlelangunittype){
+          if (!array_key_exists($singlelangunittype['nid'], $availableunittypesnids)) {
+            $availableunittypesnids[$singlelangunittype['nid']] = 1;
+          }
+          else {
+            $availableunittypesnids[$singlelangunittype['nid']] += 1;
+          }          
+        }
+
+      }
+    }
+    return $availableunittypesnids;
+  }
+  else {
+    foreach ($nodesarray as $tmpnode) {
+      //@TODO nochmal nachschauen...
+      foreach ($tmpnode->field_agreservations_unittype as $langunittype) {
+        foreach ($langunittype as $k => $singlelangunittype){
+        if (!in_array($singlelangunittype['nid'], $availableunittypesnids)) {
+          $availableunittypesnids[] = $langunittype[0]['nid'];
+          $rtnode = node_load($singlelangunittype['nid']);
+          $availableunittypes[$singlelangunittype['nid']]['rtnode'] = $rtnode;
+          $availableunittypes[$singlelangunittype['nid']]['count'] = 1;
+        }
+        else {
+          $availableunittypes[$singlelangunittype['nid']]['count'] += 1;
+        }
+        }
+      }
+    }
+    return $availableunittypes;
+  }
+}
+
+/**
+ * Finds the concrete units for the userrequest used for filling out a 
+ * reservationnode programmatically.
+ */
+function _agreservations_find_units_for_user_request($userrequestunits, $checkin, $checkout, $category) {
+  //1.:get all reservable items:
+  //take into account non published reservations from this very session:
+  $check = FALSE;
+  $resarray = array();
+  $reservable_units = agreservations_get_reservable_items('agreservations_unit', $checkin, $checkout, $category);
+//  drupal_set_message('<pre>_agreservations_find_units_for_user_requestsdsd '.$userrequestunits['selectunittype'].' dsfsdf '.print_r($reservable_units,true).'   </pre>');  
+  foreach ($userrequestunits as $userrequestunit) {
+    $check = FALSE;
+    foreach ($reservable_units as $key => $reservable_unit) {        
+      $langcode_unit = i18n_langcode();
+      if (!isset($reservable_unit->field_agreservations_unittype[$langcode_unit])) {
+        $langcode_unit = language_default('language');
+        if (!isset($reservable_unit->field_agreservations_unittype[$langcode_unit])) {
+          $langcode_unit = 'und';
+        }
+      }
+      $langcode_unit = field_language('node',$reservable_unit,'field_agreservations_unittype');
+//      drupal_set_message('<pre>*juujuujuju '.$langcode_unit.'dd'.print_r($reservable_unit->field_agreservations_unittype,true).'</pre>');
+      if ($reservable_unit->field_agreservations_unittype[$langcode_unit][0]['nid'] == $userrequestunit['selectunittype']) {
+        //unittype fits ok so put it into resultarray:
+//        drupal_set_message('<pre>fittttttttttta '.$userrequestunits['selectunittype'].' dsfsdf '.print_r($reservable_unit,true).'   </pre>');  
+        $check = TRUE;
+        unset($reservable_units[$key]);
+        $resarray[] = $reservable_unit;
+        break;
+      }
+    }
+    //if no fitting room was not found anymore, the booking has to be stopped!
+    if ($check === FALSE) {
+//             drupal_set_message('<pre>_agreservations_findunitsForUserRequest errr</pre>');
+      return FALSE;
+    }
+  }
+  return $resarray;
+}
+
+/**
+ * Programmatically creates a Reservationsinfo
+ * 
+ * reservation/resource/Persons/...
+ */
+function _agreservations_create_ResInfo($agresnid, $unitid, $pers = 0) {
+  $node = new stdClass();
+  $node->is_new = 1;
+  $tmpnodeunit = node_load($unitid, NULL, TRUE);
+  $node->title = t('Info of Reservation: @resid and Unit: @unit', array('@resid' => $agresnid, '@unit' => $tmpnodeunit->title));
+//  $node->body = "";
+
+
+  $node->type = "agreservation_unit_info";
+  $node->uid = 1;
+  $node->teaser = "";
+  $node->filter = 1;
+  $node->status = 1;
+  $node->comment = 2;
+  $node->created = REQUEST_TIME;
+  $node->changed = REQUEST_TIME;
+  $node->field_agres_ref_agreservation[0]['nid'] = $agresnid; //'2009-07-28 00:00:00'
+
+
+  $node->field_agres_refsingle_unit[0]['nid'] = $unitid;
+  $node->field_agres_unit_persons[0]['value'] = $pers;
+
+
+  node_save_action($node);
+  return $node->nid;
+}
+/**
+ * Programmatically updates a Reservationnode
+ */
+function _agreservations_setstatus_reservation($resnid,$status) {  
+  $node = node_load($resnid);
+//  drupal_set_message('<pre>'.print_r($node,true).'</pre>');
+  $node->status = $status;
+  node_save($node); //Actually save the node
+  $retval = $node->nid;
+  return $retval;
+}
+
+/**
+ * Programmatically remove units from reservation
+ * parameter: array of unit objects
+ * reservation object
+ */
+function _agreservations_remove_units_from_reservation($node,$unitstoremove) { 
+//    drupal_set_message('<pre>_agreservations_remove_units_from_reservation'.$rnode->nid.'</pre>');
+  $langcode_unit = i18n_langcode();
+  $ik = count($node->field_agres_ref_unit[$node->language]);
+    $langcode_orderid = i18n_langcode();
+    if (!isset($node->field_agres_orderid[$langcode_orderid])) {      
+      $langcode_orderid =language_default('language');
+      if (!isset($node->field_agres_titleresform[$langcode_orderid])){
+        $langcode_orderid = 'und';
+      }        
+    }      
+  //Added A.G. 08.04.2014 search $unitstoremove and delete them from the reservation
+  if (isset($unitstoremove)) {
+    foreach ($unitstoremove as $unode) {
+      $langcode_aru = 'und';
+//      $langcode_aru = field_language('node',$node,'field_agres_ref_unit');     
+//       drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$rnode->nid.'--'.print_r($node->field_agres_ref_unit[$langcode_aru],true).'</pre>');
+      foreach($node->field_agres_ref_unit[$langcode_aru] as $ukey => $punit){
+//          drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$unode->nid.'--'.print_r($punit['nid'],true).'</pre>');
+          if ($unode->nid == $punit['nid']){
+               unset($node->field_agres_ref_unit[$langcode_aru][$ukey]);
+//              break;
+          }          
+      }
+    }
+    foreach ($unitstoremove as $unode) {
+      $langcode_aru = 'und';
+        $langcode_aru=language_default();
+        $langcode_aru=$langcode_aru->language;      
+//      $langcode_aru = field_language('node',$node,'field_agres_ref_unit');     
+//       drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$rnode->nid.'--'.print_r($node->field_agres_ref_unit[$langcode_aru],true).'</pre>');
+      foreach($node->field_agres_ref_unit[$langcode_aru] as $ukey => $punit){
+//          drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$unode->nid.'--'.print_r($punit['nid'],true).'</pre>');
+          if ($unode->nid == $punit['nid']){
+               unset($node->field_agres_ref_unit[$langcode_aru][$ukey]);
+//              break;
+          }          
+      }
+    }    
+  }
+  
+  node_save($node); //Actually save the node
+  $retval = $node->nid;
+  return $retval;
+}
+/**
+ * Programmatically updates a Reservationnode
+ */
+function _agreservations_update_Reservation($resnid, $units = NULL, $checkin = NULL, $checkout = NULL, $userid = NULL, $orderid = NULL, $agresstatus = NULL,$status = 0) {  
+  $node = node_load($resnid);
+  $langcode_unit = i18n_langcode();
+  $ik = 0;
+//  $ik = count($node->field_agres_ref_unit[$node->language]) + count($node->field_agres_ref_unit['und']);
+    $langcode_orderid = i18n_langcode();
+    if (!isset($node->field_agres_orderid[$langcode_orderid])) {      
+      $langcode_orderid =language_default('language');
+      if (!isset($node->field_agres_titleresform[$langcode_orderid])){
+        $langcode_orderid = 'und';
+      }        
+    }
+
+//    drupal_set_message('<pre>dyfgbdfgdf___'.$resnid.'____'.print_r($node,true).'</pre>');
+//
+    if (isset($checkin)&&isset($checkout)) {
+  // Date and timezone handling
+  $dateTimezone1 = new DateTimeZone(date_default_timezone());
+  $dateTime1 = new DateTime($checkin, $dateTimezone1);
+  $dateTime2 = new DateTime($checkout, $dateTimezone1);
+  $offset = $dateTime1->getOffset();
+  $offset = $offset * -1;
+  $dateTime1->modify($offset . 'seconds');
+  $dateTime2->modify($offset . 'seconds');
+  $langcode_ad = 'und';
+  $langcode_ad = field_language('node',$node,'field_agres_rdate');
+  $node->field_agres_rdate[$langcode_ad][0]['value'] = $dateTime1->format('Y-m-d H:i:s'); //'2009-07-28 00:00:00' 
+  $node->field_agres_rdate[$langcode_ad][0]['value2'] = $dateTime2->format('Y-m-d H:i:s');
+  $node->field_agres_rdate[$langcode_ad][0]['timezone'] = date_default_timezone();
+  $node->field_agres_rdate[$langcode_ad][0]['timezone_db'] = 'UTC';
+  $node->field_agres_rdate[$langcode_ad][0]['date_type'] = 'datetime';      
+    }
+    if (isset($status)){
+        $node->status = $status;
+    }
+    
+    //Added 12.03.2014 prevent double addtion of units:
+  if (isset($units)) {
+    foreach ($units as $rnode) {
+      $langcode_aru = 'und';
+      $langcode_aru = field_language('node',$node,'field_agres_ref_unit'); 
+      $schonda = false;
+//       drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$rnode->nid.'--'.print_r($node->field_agres_ref_unit[$langcode_aru],true).'</pre>');
+      foreach($node->field_agres_ref_unit['und'] as $punit){
+          $ik++;
+//          drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$rnode->nid.'--'.print_r($punit['nid'],true).'</pre>');
+          if ($rnode->nid == $punit['nid']){
+              $schonda = true;
+//              drupal_set_message('<pre>dddd'.$rnode->nid.'--'.print_r($schonda,true).'</pre>');
+//              break;
+          }          
+      }
+      if ($schonda===false){
+//          drupal_set_message('<pre>nochnicht doaaaaa'.$schonda.'--'.print_r($rnode->nid,true).'</pre>');
+        $node->field_agres_ref_unit['und'][$ik]['nid'] = $rnode->nid;
+        $ik++;          
+      }
+        $langcode_aru=language_default();
+        $langcode_aru=$langcode_aru->language;        
+      foreach($node->field_agres_ref_unit[$langcode_aru] as $punit){
+          $ik++;
+//          drupal_set_message('<pre>field_agres_ref_unitfield_agres_ref_unit'.$rnode->nid.'--'.print_r($punit['nid'],true).'</pre>');
+          if ($rnode->nid == $punit['nid']){
+              $schonda = true;
+//              drupal_set_message('<pre>dddd'.$rnode->nid.'--'.print_r($schonda,true).'</pre>');
+//              break;
+          }          
+      }
+      if ($schonda===false){
+//          drupal_set_message('<pre>nochnicht doaaaaa'.$schonda.'--'.print_r($rnode->nid,true).'</pre>');
+        $node->field_agres_ref_unit[$langcode_aru][$ik]['nid'] = $rnode->nid;
+        $ik++;          
+      }      
+
+    }
+  }
+  if (isset($userid)){
+      $langcode_aur = 'und';
+      $langcode_aur = field_language('node',$node,'field_agres_userref');     
+    $node->field_agres_userref[$langcode_aur][0]['uid'] = $userid;
+  }
+  if (isset($orderid)){
+      $langcode_oi = 'und';
+      $langcode_oi = field_language('node',$node,'field_agres_orderid');        
+    $node->field_agres_orderid[$langcode_oi][0]['value'] = $orderid;
+  }  
+  if (isset($agresstatus)){
+      $langcode_as = 'und';
+      $langcode_as = field_language('node',$node,'field_agres_status');     
+    $node->field_agres_status[$langcode_as][0]['value'] = $agresstatus;
+  }  
+  if (module_exists('agres_bookings')) {
+    if (isset($orderid)) {
+//      $order = uc_order_load($orderid);
+//      $order->field_agr_associated_res['und'][0]['nid'] = $resnid;
+////      drupal_set_message('<pre>dddd'.print_r($order,true).'</pre>');
+//      _agres_order_save($order);
+    }
+  }
+
+  node_save($node); //Actually save the node
+  $retval = $node->nid;
+  return $retval;
+}
+/**
+ * Programmatically creates a Reservationnode
+ */
+function _agreservations_create_blockReservation($units, $checkin, $checkout, $userid = NULL, $orderid = NULL, $agresstatus = NULL,$title = 'Block Reservation') {
+//    module_load_include('inc', 'node', 'node.pages');  
+  $langcode_unit = i18n_langcode();
+          $langcode_aru=language_default();
+        $langcode_unit=$langcode_aru->language; 
+  $retval = NULL;
+  $node = new stdClass();
+  $node->is_new = 1;
+  $node->title = $title;
+  $node->body = "";
+  $node->type = "agreservation";
+  $node->uid = 1;
+  $node->teaser = "";
+  $node->filter = 1;
+  $node->status = 1;
+  $node->comment = 2;
+  $node->created = REQUEST_TIME;
+  $node->changed = REQUEST_TIME;
+  $node->language = $langcode_unit;
+  
+  // Date and timezone handling
+  $dateTimezone1 = new DateTimeZone(date_default_timezone());
+  $dateTime1 = new DateTime($checkin, $dateTimezone1);
+  $dateTime2 = new DateTime($checkout, $dateTimezone1);
+  $offset = $dateTime1->getOffset();
+  $offset = $offset * -1;
+  $dateTime1->modify($offset . 'seconds');
+  $dateTime2->modify($offset . 'seconds');
+  $node->field_agres_rdate[$langcode_unit][0]['value'] = $dateTime1->format('Y-m-d H:i:s'); //'2009-07-28 00:00:00'  
+
+  $node->field_agres_rdate[$langcode_unit][0]['value2'] = $dateTime2->format('Y-m-d H:i:s');
+  $node->field_agres_rdate[$langcode_unit][0]['timezone'] = date_default_timezone();
+  $node->field_agres_rdate[$langcode_unit][0]['timezone_db'] = 'UTC';
+  $node->field_agres_rdate[$langcode_unit][0]['date_type'] = 'datetime';
+  $node->validated = 0;
+  $ik = 0;
+  $node->choice = array();
+  
+  foreach ($units as $rnode) {
+    if(is_numeric($rnode)) {
+      $node->field_agres_ref_unit[$langcode_unit][$ik]['nid'] = $rnode;
+    } else {
+      $node->field_agres_ref_unit[$langcode_unit][$ik]['nid'] = $rnode->nid;
+    }
+    $ik++;
+  }
+  $node->field_agres_status[$langcode_unit][0]['value'] = $agresstatus;
+
+  $node->field_agres_orderid[$langcode_unit][0]['value'] = $orderid;
+
+  $node->field_agres_userref[$langcode_unit][0]['uid'] = $userid;
+  $form_state = array();
+  $form = array();
+  $node->validated = TRUE;
+
+//  drupal_set_message('<pre>valide'.print_r($node->validated,true).'</pre>');
+  $retval = 0;
+  if ($node->validated) {
+    //Actually save the node
+    node_save($node);
+    $retval = $node->nid;
+    $node->title = $title.'('.$node->nid.')';
+    node_save($node);
+  }
+  return $retval;
+}
+/**
+ * Programmatically creates a Reservationnode
+ */
+function _agreservations_create_Reservation($units, $checkin, $checkout, $userid = NULL, $orderid = NULL, $agresstatus = NULL,$title = 'Reservation',$status = 1) {
+//    module_load_include('inc', 'node', 'node.pages');  
+  $langcode_unit = i18n_langcode();
+          $langcode_unit=language_default();
+        $langcode_unit=$langcode_unit->language;
+  $retval = NULL;
+  $node = new stdClass();
+  $node->is_new = 1;
+  $node->title = $title;
+  $node->body = "";
+  $node->type = "agreservation";
+  $node->uid = 1;
+  $node->teaser = "";
+  $node->filter = 1;
+  $node->status = $status;//1;
+  $node->comment = 2;
+  $node->created = REQUEST_TIME;
+  $node->changed = REQUEST_TIME;
+  $node->language = $langcode_unit;
+  
+  // Date and timezone handling
+  $dateTimezone1 = new DateTimeZone(date_default_timezone());
+  $dateTime1 = new DateTime($checkin, $dateTimezone1);
+  $dateTime2 = new DateTime($checkout, $dateTimezone1);
+  $offset = $dateTime1->getOffset();
+  $offset = $offset * -1;
+  $dateTime1->modify($offset . 'seconds');
+  $dateTime2->modify($offset . 'seconds');
+  $node->field_agres_rdate[$langcode_unit][0]['value'] = $dateTime1->format('Y-m-d H:i:s'); //'2009-07-28 00:00:00'  
+
+  $node->field_agres_rdate[$langcode_unit][0]['value2'] = $dateTime2->format('Y-m-d H:i:s');
+  $node->field_agres_rdate[$langcode_unit][0]['timezone'] = date_default_timezone();
+  $node->field_agres_rdate[$langcode_unit][0]['timezone_db'] = 'UTC';
+  $node->field_agres_rdate[$langcode_unit][0]['date_type'] = 'datetime';
+  $node->validated = 0;
+  $ik = 0;
+  $node->choice = array();
+        $langcode_aru=language_default();
+        $langcode_aru=$langcode_aru->language;     
+  foreach ($units as $rnode) {
+    //$node->field_agres_ref_unit[$langcode_unit][$ik]['nid'] = $rnode->nid;
+      $node->field_agres_ref_unit[$langcode_aru][$ik]['nid'] = $rnode->nid;
+    $ik++;
+  }
+  $node->field_agres_status[$langcode_unit][0]['value'] = $agresstatus;
+
+  $node->field_agres_orderid[$langcode_unit][0]['value'] = $orderid;
+
+  $node->field_agres_userref[$langcode_unit][0]['uid'] = $userid;
+  $form_state = array();
+  $form = array();
+  $node->validated = TRUE;
+  
+  if (module_exists('agres_restriction')) {
+    $node->validated = _agres_restriction_node_validate($node);
+//     $node->validated = true;
+  }
+  
+//  drupal_set_message('<pre>valideeee:'.print_r($node,true).'</pre>');
+  $retval = 0;
+  if ($node->validated) {
+    //Actually save the node
+    node_save($node);
+    $retval = $node->nid;
+    $node->title = $title.'('.$node->nid.')';
+    node_save($node);
+  }
+  return $retval;
+}
+
+
+
+/**
+ * Implements hook_menu().
+ */
+function agreservations_menu() {
+
+  $admin = array('configure agreservations');
+  // Administration settings.
+  $items['admin/config/system/agreservations'] = array(
+    'title' => 'Agreservations',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('agreservations_admin_settings'),
+    'access callback' => 'user_access',
+    'access arguments' => $admin,
+    'description' => 'Configure Agreservations.',
+  );
+ 
+ 
+
+  return $items;
+}
+
+/**
+ * Settings page callback.
+ */
+function agreservations_admin_settings($form, &$form_state) {
+  $form = array();
+  $form['agreservations_config'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('View settings'),
+    '#description' => t('Agreservations settings.'),
+  );
+
+  $form['agreservations_config']['agres_createunitinfo'] = array(
+    '#type' => 'select',
+    '#title' => t('Unitinfo'),
+    '#default_value' => variable_get('agres_createunitinfo', 'manualunitinfo'),
+    '#options' => array(
+      'autounitinfo' => t('autounitinfo = Autocreation of unitinforecords per booked unit. see noderelationships and editable fields...'),
+      'manualunitinfo' => t('manualunitinfo = no automatic creation of unitinfo.'),
+    ),
+    '#description' => t('select if you want related info per reserved unit autocreated.'),
+  );
+
+  if (module_exists('agres_onlineform') || module_exists('agres_onlineformj')) {
+    $form['agreservations_config']['agres_onlineformelements'] = array(
+      '#type' => 'select',
+      '#title' => t('Form entries for the searchwidget + multisteform for overnightbookings.'),
+      '#default_value' => variable_get('agres_onlineformelements', 'standard'),
+      '#options' => array(
+        'standard' => t('standard = checkin date,checkout date,number of units'),
+        'hotel1' => t('hotel1 = checkin date,checkout date,Number of Persons'),
+      ),
+      '#description' => t('select the fields to fill in in the onlinesearchwidget for sitevisitors.'),
+    );
+  }
+  
+  if (module_exists('agres_categories')){
+    $form['agreservations_config']['agres_bookonunittypeview'] = array(
+      '#type' => 'select',
+      '#title' => t('Book On Unit Type Node View'),
+      '#default_value' => variable_get('agres_bookonunittypeview', 'no'),
+      '#options' => array(
+        'yes' => t('yes'),
+        'no' => t('no'),
+      ),
+      '#description' => t('select if you want to allow booking on the unit type node view.'),
+    );
+
+     $form['agreservations_config']['agres_bookonunittypeview_ubercart'] = array(
+      '#type' => 'select',
+      '#title' => t('If book On Unit Type Node View enabled...use Ubercart?'),
+      '#default_value' => variable_get('agres_bookonunittypeview_ubercart', 'yes'),
+      '#options' => array(
+        'yes' => t('yes'),
+        'no' => t('no'),
+      ),
+      '#description' => t('Select if use ubercart on book Unit Type Node View if book on unit type enabled.'),
+    );
+  }
+  
+  if (module_exists('agres_bookings') && module_exists('uc_credit')) {
+    $form['agreservations_config']['agres_uc_credit_deposit'] = array(
+      '#type' => 'select',
+      '#title' => t('depositmultiplikator'),
+      '#default_value' => variable_get('agres_uc_credit_deposit', '1'),
+      '#options' => array(
+        '0.05' => t('5% of the order total will be paid in advance.'),
+        '0.1' => t('10% of the order total will be paid in advance.'),
+        '0.2' => t('20% of the order total will be paid in advance.'),
+        '0.3' => t('30% of the order total will be paid in advance.'),
+        '0.5' => t('50% of the order total will be paid in advance.'),
+        '1' => t('100% of the order total will be paid in advance.'),
+      ),
+      '#description' => t('select the multiplikator determining the amount of order total to be paid in advance before checkin/arrival.'),
+    );
+//          $form['agreservations_config']['agres_uc_credit_deposit_text'] = array(
+//          '#type'=> 'textfield',
+//          '#title'=> t('Text to display regarding order deposit payment'),
+//          '#maxlength'=> 30,
+//          '#size'=> 20,
+//          '#default_value'=>  variable_get('agres_uc_credit_deposit_text', t('of the total amount will be charged now, the rest on arrival.')),
+//          '#description' => t('The text to display, i.e. " of the total amount will be charged now, the rest on arrival."'),
+//            );     
+    $form['agreservations_config']['agres_uc_item_downgrade_discount'] = array(
+      '#type' => 'select',
+      '#title' => t('AGR Downgrade UC Item Discount'),
+      '#default_value' => variable_get('agres_uc_item_downgrade_discount', '0.1'),
+      '#options' => array(   
+        '0.0' => t('0% Discount'),
+        '0.1' => t('10% Discount'),
+        '0.2' => t('20% Discount'),
+        '0.3' => t('30% Discount'),
+        '0.4' => t('50% Discount'),       
+      ),
+      '#description' => t('select the multiplikator determining the amount of order total to be paid in advance before checkin/arrival.'),
+    );    
+  }
+  if (module_exists('agres_bookings') && (module_exists('agres_package'))) {
+    $form['agreservations_config']['agres_bookingmode_3_returndiscount'] = array(
+      '#type' => 'select',
+      '#title' => t('AGR Returnbooking Discount - applies to Booking Mode 3(Transfer Booking) only.'),
+      '#default_value' => variable_get('agres_bookingmode_3_returndiscount', '0.1'),
+      '#options' => array(   
+        '0.0' => t('0% Discount'),
+        '0.1' => t('10% Discount'),
+        '0.2' => t('20% Discount'),
+        '0.3' => t('30% Discount'),
+        '0.4' => t('50% Discount'),       
+      ),
+      '#description' => t('select the multiplikator determining the amount of order total to be paid in advance before checkin/arrival.'),
+    );  
+   
+  }
+  if (module_exists('agres_categories') && (module_exists('agres_restriction'))) {
+    $form['agreservations_config']['agr_checkglobalrestriction_swidget'] = array(
+      '#type' => 'select',
+      '#title' => t('Check global restrictions on searchwidget submit?'),
+      '#default_value' => variable_get('agr_checkglobalrestriction_swidget', 'yes'),
+      '#options' => array(
+        'no' => t('Do NOT check global Restrictions in the searchwidget'),
+        'yes' => t('Check global Restrictions in the searchwidget'),
+      ),
+      '#description' => t('Decide wether global restrictions should be checked for anonymus unitsearch in the searchwidget'),
+    );
+  }
+  //@todo this should be adjusted to consider the categories 
+  //measurement unit/ and booking mode: days/hours /in advance:
+  $form['agreservations_config']['agr_days_in_advance'] = array(
+    '#type' => 'select',
+    '#title' => t('How far an online reservation has to be in the future:'),
+    '#options' => array(
+      '0' => t('Same day allowed'),
+      '1' => t('1 day in advance'),
+      '2' => t('2 days in advance'),
+      '3' => t('3 days in advance'),
+      '4' => t('4 days in advance'),
+      '5' => t('5 days in advance'),
+      '6' => t('6 days in advance'),
+      '7' => t('7 days in advance'),
+    ),
+    '#default_value' => variable_get('agr_days_in_advance', 1),
+  );
+  $form['agreservations_config']['agr_hours_in_advance'] = array(
+    '#type' => 'select',
+    '#title' => t('How far an online reservation has to be in the future:'),
+    '#options' => array(
+      '0' => t('Same hour allowed'),
+      '1' => t('1 hours in advance'),
+      '2' => t('2 hours in advance'),
+      '3' => t('3 hours in advance'),
+      '4' => t('4 hours in advance'),
+      '5' => t('5 hours in advance'),
+      '6' => t('6 hours in advance'),
+      '7' => t('7 hours in advance'),
+      '8' => t('8 hours in advance'),
+      '9' => t('9 hours in advance'),
+      '10' => t('10 hours in advance'),
+      '11' => t('11 hours in advance'),
+      '12' => t('12 hours in advance'),
+      '13' => t('13 hours in advance'),
+      '14' => t('14 hours in advance'),
+      '15' => t('15 hours in advance'),        
+    ),
+    '#default_value' => variable_get('agr_hours_in_advance', 1),
+  );
+          $form['agreservations_config']['agr_min_gap'] = array(
+          '#type'=> 'textfield',
+          '#title'=> t('Minimum Gap between reserved times in Minutes'),
+          '#maxlength'=> 30,
+          '#size'=> 3,
+          '#default_value'=>  variable_get('agr_min_gap', 15),
+            );
+      $form['agreservations_config']['agres_createresmode'] = array(
+      '#type' => 'select',
+      '#title' => t('Select mode of Resource Allocation for manual Reservations.'),
+      '#default_value' => variable_get('agres_createresmode', 'unit'),
+      '#options' => array(
+        'unit' => t('unit'),
+        'unit_type' => t('unit type'),
+      ),
+      '#description' => t('When creating Reservation Node directly(not using searchwidget), choose wether to reserve by unit or by unit type.'),
+    );
+    if (module_exists('agres_categories') && (!module_exists('agres_bookings'))) {
+    $form['agreservations_config']['agr_direct_reserve'] = array(
+      '#type' => 'select',
+      '#title' => t('If not using ubercart, directly reserve resources, or just sent requests as e-mail to receptionist?'),
+      '#default_value' => variable_get('agr_direct_reserve', 'yes'),
+      '#options' => array(
+        'no' => t('just sent mail to receptionist, he then will reserve the room'),
+        'yes' => t('yes, let users/visitors directly make reservations through the search widget.'),
+      ),
+      '#description' => t('Decide wether visitors can directly reserve resources, or the request gets only e-mailed to the receptionist.'),
+    );
+      $form['agreservations_config']['agr_receptionist_email'] = array(
+       '#size' => '40',
+//         '#weight' => '0',
+//        '#field_suffix' => ' :Suffix',
+//         '#field_prefix' => 'Prefix: ',
+         '#type' => 'textfield',
+          '#title' => t('Email to sent reservation request to:'),
+        '#default_value' => variable_get('agr_receptionist_email', variable_get('site_mail','')),
+    );    
+  }
+
+  return system_settings_form($form);
+}
+
+function agreservations_page_build(&$page) {
+//booking Details:
+    
+//    drupal_set_message('<pre>agreservations_page_build___ '.print_r($page,true).'</pre>');
+    
+  if (menu_get_object('node', 1)) {
+    $node = menu_get_object('node', 1);
+    if ($node->type=='agreservations_unittype') {
+      $_SESSION['agres_current_page_nid'] = $node->nid; 
+    } else {
+      if (isset($_SESSION['agres_current_page_nid'])){
+        unset($_SESSION['agres_current_page_nid']);
+      }      
+    }   
+  } else {
+     if (isset($_SESSION['agres_current_page_nid'])){
+       unset($_SESSION['agres_current_page_nid']);
+     }    
+  }
+}
+/**
+ * Implements hook_node_view().
+ */
+function agreservations_node_view($node, $view_mode, $langcode) {  
+  if ($node->type == 'agreservation') {
+    $tmpdatewarg = new DateTime($node->field_agres_rdate[$node->language][0]['value']);
+//        date_modify($tmpdatewarg, '+1 week'); //+1week due to missbehavior of date modules,when fixed:remove this line.
+    ////
+    ////
+    
+    $weekarg = date_format($tmpdatewarg, "Y-\WW");
+    $node->content['bookingcalendarlink'] = array(
+      '#prefix' => '<div>',
+      '#markup' => l('Booking Calendar', 'agres_view/week/' . $weekarg),
+      '#suffix' => '</div>',
+      '#weight' => -1,
+    );
+
+//     drupal_set_message('<pre>agreservations_node_viewttttttttttttttttt '.$defaultLanguage.'---'.print_r($node->field_agres_ref_unit,true).'</pre>');
+  }
+  if ($node->type == 'agreservations_unittype') {
+    $agres_bookonunittypeview = variable_get('agres_bookonunittypeview', 'no');
+    if (module_exists('agres_categories') && $agres_bookonunittypeview=='yes') {
+      $langcode = i18n_langcode();
+      //get category of this unit type:
+      $output1 = '';
+      if (module_exists('agres_availability')){
+        $agres_availabilitycal= null;
+        $outputavail = '';
+        $agres_availabilitycal = views_get_view('agres_availability');
+        $outputavail = $agres_availabilitycal->preview('block_3');
+        $node->content['agrunittypeavailability'] = array(
+      '#prefix' => '<div margin-top:0px;float:left;">',
+      '#markup' => $outputavail,
+      '#suffix' => '</div>',
+      '#weight' => -1,
+    );        
+      }      
+      
+      $agreservations_unittype_form = drupal_get_form('agreservations_unittype_form',$node->field_agres_ref_category[$langcode][0]['nid'],$node->nid);
+      $output1 .= drupal_render($agreservations_unittype_form);
+        $node->content['agrunittypebookform'] = array(
+      '#prefix' => '<div style="clear:both;margin-top:0px;float:right;">',
+      '#markup' => $output1,
+      '#suffix' => '</div>',
+      '#weight' => 8,
+    ); 
+    }
+        
+       
+  }//////$bookableproducts .= drupal_render($cartviewform);  
+}
+
+function agreservations_unittype_form($form_state, $args) {  
+  $catnid = $args['build_info']['args'][0];
+  $unittypenid = $args['build_info']['args'][1];
+//  drupal_set_message('<pre>agreservations_unittype_formcat '.print_r($catnid,true).'</pre>');
+  $cat = node_load($catnid);
+  $langcode = i18n_langcode();
+  if (!isset($cat->field_agres_showtime[$langcode]) || !isset($cat->field_agres_datelabel1[$langcode])) {
+    $langcode = language_default('language');
+    if (!isset($cat->field_agres_showtime[$langcode]) || !isset($cat->field_agres_datelabel1[$langcode])) {
+       $langcode = 'und';
+    }
+       
+  }
+  $datform_default = date_default_format('date_popup');
+  $datform = str_replace(':s', '', $datform_default);
+  $datform = 'Y-m-d';
+//    &&isset($cat->field_agres_showtime[$langcode])
+  $form['unittypebook'] = array(
+    '#type' => 'fieldset', 
+    '#tree' => TRUE,
+//    '#title' => t('Name'),
+  );
+  $form['unittypebook']['checkin'.$cat->nid] = array(
+//    '#prefix' => '<div>',
+    '#type' => 'date_popup',
+    '#tree' => TRUE,
+    '#title' => $cat->field_agres_datelabel1[$langcode][0]['safe_value'],
+    '#required' => TRUE,
+    '#date_label_position' => 'within',
+    '#size' => 10,
+    '#description' => t(''),
+    '#date_type' => 'datetime',
+    '#date_timezone' => date_default_timezone(), //Y-m-d H:i
+    '#date_format' => $datform,
+    '#date_year_range' => '-0:+1',
+//    '#suffix' => '</div>',
+  );
+  
+  $timeoptions = Array
+(   '00:00' => '00:00',
+    '00:15' => '00:15',
+    '00:30' => '00:30',
+    '00:45' => '00:45',
+    '01:00' => '01:00',
+    '01:15' => '01:15',
+    '01:30' => '01:30',
+    '01:45' => '01:45',
+    '02:00' => '02:00',
+    '02:15' => '02:15',
+    '02:30' => '02:30',
+    '02:45' => '02:45',
+    '03:00' => '03:00',
+    '03:15' => '03:15',
+    '03:30' => '03:30',
+    '03:45' => '03:45',
+    '04:00' => '04:00',
+    '04:15' => '04:15',
+    '04:30' => '04:30',
+    '04:45' => '04:45',
+    '05:00' => '05:00',
+    '05:15' => '05:15',
+    '05:30' => '05:30',
+    '05:45' => '05:45',
+    '06:00' => '06:00',
+    '06:15' => '06:15',
+    '06:30' => '06:30',
+    '06:45' => '06:45',
+    '07:00' => '07:00',
+    '07:15' => '07:15',
+    '07:30' => '07:30',
+    '07:45' => '07:45',
+    '08:00' => '08:00',
+    '08:15' => '08:15',
+    '08:30' => '08:30',
+    '08:45' => '08:45',
+    '09:00' => '09:00',
+    '09:15' => '09:15',
+    '09:30' => '09:30',
+    '09:45' => '09:45',
+    '10:00' => '10:00',
+    '10:15' => '10:15',
+    '10:30' => '10:30',
+    '10:45' => '10:45',
+    '11:00' => '11:00',
+    '11:15' => '11:15',
+    '11:30' => '11:30',
+    '11:45' => '11:45',
+    '12:00' => '12:00',
+    '12:15' => '12:15',
+    '12:30' => '12:30',
+    '12:45' => '12:45',
+    '13:00' => '13:00',
+    '13:15' => '13:15',
+    '13:30' => '13:30',
+    '13:45' => '13:45',
+    '14:00' => '14:00',
+    '14:15' => '14:15',
+    '14:30' => '14:30',
+    '14:45' => '14:45',
+    '15:00' => '15:00',
+    '15:15' => '15:15',
+    '15:30' => '15:30',
+    '15:45' => '15:45',
+    '16:00' => '16:00',
+    '16:15' => '16:15',
+    '16:30' => '16:30',
+    '16:45' => '16:45',
+    '17:00' => '17:00',
+    '17:15' => '17:15',
+    '17:30' => '17:30',
+    '17:45' => '17:45',
+    '18:00' => '18:00',
+    '18:15' => '18:15',
+    '18:30' => '18:30',
+    '18:45' => '18:45',
+    '19:00' => '19:00',
+    '19:15' => '19:15',
+    '19:30' => '19:30',
+    '19:45' => '19:45',
+    '20:00' => '20:00',
+    '20:15' => '20:15',
+    '20:30' => '20:30',
+    '20:45' => '20:45',
+    '21:00' => '21:00',
+    '21:15' => '21:15',
+    '21:30' => '21:30',
+    '21:45' => '21:45',
+    '22:00' => '22:00',
+    '22:15' => '22:15',
+    '22:30' => '22:30',
+    '22:45' => '22:45',
+    '23:00' => '23:00',
+    '23:15' => '23:15',
+    '23:30' => '23:30',
+    '23:45' => '23:45',
+);
+  if (module_exists('agres_categories')) {    
+    $timeoptions = _agres_categories_create_options_servicehours(0,$cat);
+//    drupal_set_message('<pre>timeoptions---->'.print_r($timeoptions,true).'</pre>');
+  }
+  
+          $lang = 'und';
+        $lang = field_language('node', $cat,'field_agres_showtime');
+  if ($cat->field_agres_showtime[$lang][0]['value'] > 0) {
+    //
+        $form['unittypebook']['checkin'.$cat->nid]['checkintime'] = array(
+//      '#prefix' => '<div>',
+      '#type' => 'select',
+      '#title' =>'time', //$category->title . ' ' . t('count'), //t('Units'),
+         
+      '#default_value' =>  reset($timeoptions),
+      '#options' => $timeoptions,
+//      '#suffix' => '</div>',
+      '#weight' =>150,
+    );
+//    $datform .= ' H:i';
+  }  
+  
+  if (isset($cat->field_agres_datelabel2[$langcode][0]['safe_value'])) {
+    $form['unittypebook']['checkout'.$cat->nid] = array(
+//      '#prefix' => '<div>',
+      '#type' => 'date_popup',
+      '#tree' => TRUE,
+      '#title' => $cat->field_agres_datelabel2[$langcode][0]['safe_value'],
+      //      '#default_value' =>
+      '#required' => TRUE,
+      '#date_label_position' => 'within',
+      '#size' => 10,
+      '#date_type' => 'datetime',
+      '#date_timezone' => date_default_timezone(),
+      '#date_format' => $datform,
+      '#date_year_range' => '-0:+1',
+//      '#suffix' => '</div>',
+    );
+  }
+          $lang = 'und';
+        $lang = field_language('node', $cat,'field_agres_showtime');
+  if ($cat->field_agres_showtime[$lang][0]['value'] > 0) {
+    //
+        $form['unittypebook']['checkout'.$cat->nid]['checkouttime'] = array(
+//      '#prefix' => '<div>',
+      '#type' => 'select',
+      '#title' =>'time', //$category->title . ' ' . t('count'), //t('Units'),
+         
+      '#default_value' =>  reset($timeoptions),
+      '#options' => $timeoptions,
+//      '#suffix' => '</div>',
+      '#weight' =>150,
+    );
+//    $datform .= ' H:i';
+  }    
+//  if ($cat->field_agres_shownumberunits[$langcode][0]['value'] == 1) {
+    $form['unittypebook']['units'] = array(
+      '#prefix' => '<div>',
+      '#type' => 'select',
+      '#title' => t('units'), //$category->title . ' ' . t('count'), //t('Units'),
+      '#default_value' => $cat->field_agres_numberunits[$langcode][0]['value'],
+      '#options' => array(
+        1 => 1,
+        2 => 2,
+        3 => 3,
+        4 => 4,
+        5 => 5,
+        6 => 6,
+        7 => 7,
+        8 => 8,
+        9 => 9,
+        10 => 10,
+      ),
+      '#suffix' => '</div>',
+    );
+//  }
+  $form['unittype'] = array('#type' => 'value', '#value' => $unittypenid);
+  
+  $form['unittypebook']['submit'] = array(
+    
+    '#prefix' => '<div>',
+    '#tree' => TRUE,
+    '#type' => 'submit',
+    '#title' => 'Book',
+    '#value' => 'Book',
+    // '#submit' => array('agres_categories_searchwidget_form_submit'),
+    '#suffix' => '</div>',
+  );
+
+  return $form;
+}
+
+////*when anonymous users clicks search on the searchform:*/
+//
+function agreservations_unittype_form_submit($form, $form_state) {
+  if (module_exists('uc_cart')){
+  if (isset($form_state['build_info']['args'][0])) {
+    $catid = $form_state['build_info']['args'][0];
+    $cat = node_load($form_state['build_info']['args'][0]);
+//    drupal_set_message('<pre>UBERCART BUY IT NOW!' . print_r($form_state, TRUE) . '</pre>');
+    $langcode = i18n_langcode();
+              $lang = 'und';
+        $lang = field_language('node', $cat,'field_agres_showtime');
+    if (!isset($cat->field_agres_showtime[$lang]) || !isset($cat->field_agres_datelabel1[$lang])) {
+      $langcode = 'und';
+    }
+    if (module_exists('uc_cart')) {
+      uc_cart_empty(uc_cart_get_id());
+    }
+
+//  drupal_set_message('<pre>agres_categories_searchwidget_form_submit' . print_r($form_state, TRUE) . '</pre>');
+    if (isset($form_state['build_info']['args'][0])) {
+      $cat = $form_state['build_info']['args'][0];
+      if (isset($form_state['values']['adults'])) {
+        $adults = $form_state['values']['adults'];
+      }
+
+      if (isset($form_state['values']['children'])) {
+        $children = $form_state['values']['children'];
+      }
+
+      if (isset($form_state['values']['units'])) {
+        $requestedunits = $form_state['values']['units'];
+      }
+//drupal_set_message('<pre>issetissetissetisset****'.print_r($form_state['input'],TRUE).'</pre>');
+      if (isset($form_state['input']['unittypebook']['checkin' . $catid])) {
+
+
+          if (isset($form_state['input']['unittypebook']['checkin' . $catid]['checkintime'])) {
+            $tmpDateCheckin = date_create($form_state['input']['unittypebook']['checkin' . $catid]['date'] . ' ' . $form_state['input']['unittypebook']['checkin' . $catid]['checkintime']);
+          } else {
+            $tmpDateCheckin = date_create($form_state['input']['unittypebook']['checkin' . $catid]['date']);
+          }
+
+//        drupal_set_message('<pre>$tmpDateCheckin$tmpDateCheckin****'.print_r($tmpDateCheckin,TRUE).'</pre>');
+        }
+        if (isset($form_state['input']['unittypebook']['checkout' . $catid])) {
+          if (isset($form_state['input']['unittypebook']['checkout' . $catid]['checkouttime'])) {
+            $tmpDateCheckout = date_create($form_state['input']['unittypebook']['checkout' . $catid]['date'] . ' ' . $form_state['input']['unittypebook']['checkout' . $catid]['checkouttime']);
+          } else {
+            $tmpDateCheckout = date_create($form_state['input']['unittypebook']['checkout' . $catid]['date']);
+          }
+        }
+//      if (($cat->field_agres_showtime[$lang][0]['value'] <> 1) && (isset($cat->field_agres_defaultcheckintime[$lang][0]['value']))) {
+//        date_modify($tmpDateCheckin, $cat->field_agres_defaultcheckintime[$langcode][0]['value']);
+//        date_modify($tmpDateCheckout, $cat->field_agres_defaultcheckouttime[$langcode][0]['value']);
+//      }
+      $checkintime = date_format($tmpDateCheckin, 'Y-m-d H:i:s');
+      $checkouttime = date_format($tmpDateCheckout, 'Y-m-d H:i:s');
+
+
+        $resnodes = agreservations_get_reservable_items('agreservations_unit', date_format($tmpDateCheckin, 'Y-m-d H:i:s'), date_format($tmpDateCheckout, 'Y-m-d H:i:s'), $catid);      
+ 
+      $availableunittypes = _agreservations_get_reservable_unittypes($resnodes, FALSE);
+//    //Filter types:
+      $_SESSION['availableunittypes'] = $availableunittypes;
+      $foundunits = count($resnodes);
+      $userrequest['checkintime'] = $checkintime;
+      $userrequest['checkouttime'] = $checkouttime;
+      if (isset($adults)) {
+        $userrequest['adults'] = $adults;
+      }
+      if (isset($children)) {
+        $userrequest['children'] = $children;
+      }
+
+      if (isset($requestedunits)) {
+        $userrequest['requestedunits'] = $requestedunits;
+      }
+      else {
+        $userrequest['requestedunits'] = 1;
+        $requestedunits = 1;
+      }
+      $datstr =  date_format($tmpDateCheckin, 'YmdHis') . date_format($tmpDateCheckout, 'YmdHis') . $requestedunits;
+      $cat = $form_state['build_info']['args'][0];
+      $form_state['rebuild'] = true;
+      unset($form_state['values']);
+      agres_categories_search_result($userrequest, $cat, $datstr);
+
+    }
+    else {
+      $content = '<div>' . t('Category not set') . '</div>';
+      $content = $content . '<br><a href="' . base_path() . '">' . t('back') . '<a>';
+      print theme('page', $content);
+    }
+  }
+  else {
+    drupal_set_message('Category not set!');
+  }    
+  } 
+  else {
+//    drupal_set_message('<pre>nicht ubercart' . print_r($form_state, TRUE) . '</pre>');
+  }
+
+}
+
+///**
+// * Implementation of hook validate():
+// */
+function agreservations_unittype_form_validate($form, $form_state) {
+      
+//       drupal_set_message('<pre>submit****'.print_r($form_state,true).'</pre>');
+  $datform = 'Y-m-d H:i:s'; //:s
+  if (isset($form_state['build_info']['args'][0])) {
+    $catnid = $form_state['build_info']['args'][0];
+    $cat = node_load($catnid);
+    $langcode = 'und';
+    $langcode = i18n_langcode();
+//    if (!isset($cat->field_agres_showtime[$langcode]) || !isset($cat->field_agres_datelabel1[$langcode])) {
+      
+//    }
+//    drupal_set_message('<pre>cat****'.print_r($cat,true).'</pre>');
+    if (!isset($form_state['input']['unittypebook']['units'])) {
+      $form_state['input']['unittypebook']['units'] = 1;
+    }
+    $requestedunits = $form_state['input']['unittypebook']['units'];
+    if (!isset($form_state['input']['unittypebook']['checkin'.$catnid]['date']) || ($form_state['input']['unittypebook']['checkin'.$catnid]['date'] == '')) {
+      form_set_error('unitinfo', t('Checkout-time has to be entered'));
+//      drupal_set_message('<pre>agreservations_unittype_form_validate****'.print_r($form_state,TRUE).'</pre>');
+      return;
+    }
+    else {
+//      drupal_set_message('<pre>agreservations_unittype_form_validate****'.print_r($form_state['values']['unittypebook']['checkin'],TRUE).'</pre>');
+      
+      $tmpDateCheckin = date_create($form_state['input']['unittypebook']['checkin'.$catnid]['date']);
+    }
+//    drupal_set_message('<pre>$tmpDateCheckin$tmpDateCheckin****'.print_r($tmpDateCheckin,TRUE).'</pre>');
+    $langcode_csu = 'und';
+    $langcode_csu = field_language('node', $cat,'field_agres_shownumberunits');
+    $langcode_cnu = 'und';
+    $langcode_cnu = field_language('node', $cat,'field_agres_numberunits');    
+    if (($cat->field_agres_shownumberunits[$langcode_csu][0]['value'] !== 1) && (isset($cat->field_agres_numberunits[$langcode_cnu][0]['value']))) {
+      $form_state['input']['unittypebook']['units'] = $cat->field_agres_numberunits[$langcode_cnu][0]['value'];
+    }
+    $langcode_cdl2 = 'und';
+    $langcode_cdl2 = field_language('node', $cat,'field_agres_datelabel2');        
+    if (!isset($cat->field_agres_datelabel2[$langcode_cdl2][0]['value'])) {
+//      drupal_set_message('<pre>hier</pre>');
+      if (!isset($form_state['input']['unittypebook']['checkout'.$catnid])) {
+        form_set_error('unitinfo', t('Checkout-time has to be entered'));
+      }
+      $tmpDateCheckout = date_create($form_state['input']['unittypebook']['checkin'.$catnid]['date']);
+    }
+    else {
+      if (!isset($form_state['input']['unittypebook']['checkout'.$catnid]) || ($form_state['input']['unittypebook']['checkout'.$catnid]['date'] == '')) {
+        form_set_error('unitinfo', t('Checkout-time has to be entered'));
+        return;
+      }
+      $tmpDateCheckout = date_create($form_state['input']['unittypebook']['checkout'.$catnid]['date']);
+
+
+    }
+
+    //check restrictions if modules is enabled:
+    if (module_exists('agres_restriction') && (variable_get('agr_checkglobalrestriction_swidget', 'yes') == 'yes')) {
+      $message = agres_timeframe_api('check_restrictions', array(
+        'start_date' => $form_state['values']['unittypebook']['checkin'.$catnid],
+        'end_date' => $form_state['values']['unittypebook']['checkout'.$catnid],
+      ));
+    }
+        $langcode_cst = 'und';
+    $langcode_cst = field_language('node', $cat,'field_agres_showtime');  
+        $langcode_cdc = 'und';
+    $langcode_cdc = field_language('node', $cat,'field_agres_defaultcheckintime');     
+        $langcode_cdco = 'und';
+    $langcode_cdco = field_language('node', $cat,'field_agres_defaultcheckouttime');      
+//           drupal_set_message('<pre>agres_categories_searchwidget_form_validate****'.print_r($cat->field_agres_defaultcheckintime,TRUE).'</pre>');
+    if (($cat->field_agres_showtime[$langcode_cst][0]['value'] !== 1) && (isset($cat->field_agres_defaultcheckintime[$langcode_cdc][0]['value']))) {
+
+      date_modify($tmpDateCheckin, $cat->field_agres_defaultcheckintime[$langcode_cdc][0]['value']);
+      $form_state['input']['unittypebook']['checkin'.$catnid] = $tmpDateCheckin->format($datform);
+      date_modify($tmpDateCheckout, $cat->field_agres_defaultcheckouttime[$langcode_cdco][0]['value']);
+      $form_state['input']['unittypebook']['checkout'.$catnid] = $tmpDateCheckout->format($datform);
+
+    }
+        $langcode_cdur = 'und';
+    $langcode_cdur = field_language('node', $cat,'field_agres_duration');      
+    //apply duration if set and only from: date is askedfor/entered by user:
+    if (isset($cat->field_agres_duration[$langcode_cdur])) {
+      if (($cat->field_agres_duration[$langcode_cdur][0]['approx_seconds'] > 0) && (!isset($cat->field_agres_datelabel2[$langcode_cdl2][0]['value']))) {
+        $tmpDateCheckout = date_create($form_state['values']['unittypebook']['checkin']);
+        date_modify($tmpDateCheckout, '+' . $cat->field_agres_duration[$langcode_cdur][0]['approx_seconds'] . ' second');
+        //write back to form_state:
+
+        $form_state['values']['unittypebook']['checkout'] = $tmpDateCheckout->format($datform);
+      }
+    }
+    /*         * *******************check servicehours!****************************************************************** */
+    $checkinisinrange = _agres_categories_check_servicehours($tmpDateCheckin, $cat);
+    $checkoutisinrange = _agres_categories_check_servicehours($tmpDateCheckout, $cat);
+    if ($checkinisinrange === FALSE) {
+      form_set_error('unitinfo', t('Checkin-time has to be within service hours '));
+    }
+    if ($checkoutisinrange === FALSE) {
+      form_set_error('unitinfo', t('Checkout-time has to be within service hours '));
+    }
+
+    if ($tmpDateCheckin >= $tmpDateCheckout) {
+      form_set_error('unitinfo', t('Checkin has to be before Checkout '));
+    }
+    if ($tmpDateCheckin <= new DateTime()) {
+      form_set_error('unitinfo', t('Checkin is has to be in the future !!! '));
+    }
+    $checkintime = date_format($tmpDateCheckin, 'Y-m-d H:i:s');
+    $checkouttime = date_format($tmpDateCheckout, 'Y-m-d H:i:s');
+
+    /* get reservable units: */
+    $resnodes = agreservations_get_reservable_items('agreservations_unit', date_format($tmpDateCheckin, 'Y-m-d H:i'), date_format($tmpDateCheckout, 'Y-m-d H:i'), $cat);
+
+    $foundunits = count($resnodes);
+    if ($requestedunits > 0) {
+      if ($requestedunits > $foundunits) {
+        form_set_error('unitinfo', t('Not enough free units found.'));
+      }
+    }
+    elseif ($requestedunits == 0) {
+    $langcode_cusel = 'und';
+    $langcode_cusel = field_language('node', $cat,'field_agres_unitselectionmethod');      
+      if (!($cat->field_agres_shownumberunits[$langcode_csu][0]['value'] == 2 && $cat->field_agres_unitselectionmethod[$langcode_cusel][0]['value'] == 2) ) {
+        form_set_error('unitinfo', t('Number of units has to be > 0'));
+      }
+    }
+    $tmpagres_onlineformjelements = variable_get('agres_onlineformjelements', 'standard');
+  }
+  else {
+    form_set_error('unitinfo', t('agres_category not set! Please try again'));
+  }
+}
+
+/**
+ *return date based on reservation node object.
+ */
+function _agreservations_show_date1($res,$format = 'Y-m-d H:i:s') {
+      $langcode_rdate = 'und';
+    $langcode_rdate = field_language('node', $res,'field_agres_rdate'); 
+  $dateTimezone1 = new DateTimeZone(date_default_timezone());
+  $dateTime1 = new DateTime($res->field_agres_rdate[$langcode_rdate][0]['value'], $dateTimezone1);
+  $dateTime2 = new DateTime($res->field_agres_rdate[$langcode_rdate][0]['value2'], $dateTimezone1);
+  $offset = $dateTime1->getOffset();
+  $offset = $offset * 1;
+  $dateTime1->modify($offset . 'seconds');
+  $dateTime2->modify($offset . 'seconds');
+  $retstrdate = $dateTime1->format($format);
+  return $retstrdate;
+}
+
+/**
+ *return date based on reservation node object.
+ */
+function _agreservations_show_date2($res,$format = 'Y-m-d H:i:s') {
+  $langcode_rdate = 'und';
+  $langcode_rdate = field_language('node', $res,'field_agres_rdate');   
+  $dateTimezone1 = new DateTimeZone(date_default_timezone());
+  $dateTime1 = new DateTime($res->field_agres_rdate[$langcode_rdate][0]['value'], $dateTimezone1);
+  $dateTime2 = new DateTime($res->field_agres_rdate[$langcode_rdate][0]['value2'], $dateTimezone1);
+  $offset = $dateTime1->getOffset();
+  $offset = $offset * 1;
+  $dateTime1->modify($offset . 'seconds');
+  $dateTime2->modify($offset . 'seconds');
+  $retstrdate = $dateTime2->format($format);
+  return $retstrdate;
+}
+
+function agreservations_mail($key, &$message, $params) {
+//    drupal_set_message('<pre>requdvfddvest:'.print_r($key,true).'</pre>');
+//  if (isset($params['subject'])) {
+//    $message['subject'] = $params['subject'];
+//  }
+//  if (isset($params['body'])) {
+//    $message['body'][] = $params['body'];
+//  }
+//  if (isset($params['headers']) && is_array($params['headers'])) {  
+//    $message['headers'] += $params['headers'];
+//  }
+ 
+  // You should really have hook_mail() doing most of the formatting,
+  // rather than pass in a complete $body or a $subject from drupal_mail(). 
+  // To accomplish that, you'd branch this formatting based on the value of
+  // $key sent with drupal_mail(), and using code like this:
+   switch ($key) {       
+    case 'res_request':
+      //  drupal_set_message('<pre>parameter:'.print_r($params,true).'</pre>');
+//  if (isset($params['subject'])) {
+    $message['subject'] = t('!name: a reservation has been requested',array('!name' => variable_get('site_name','Drupal')));
+//  }
+//  if (isset($params['body'])) {
+    $message['body'][] = '<pre>parameter:'.print_r($params,true).'</pre>';
+//  }
+  if (isset($params['headers']) && is_array($params['headers'])) {  
+    $message['headers'] += $params['headers'];
+  }        
+      // do something specific for mails of type key1
+      break;     
+
+   }
+}

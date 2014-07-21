@@ -1,0 +1,21 @@
+name = Agreservations Bookings
+description = Hook in to ubercart.
+package = Agreservations - Online Bookings
+core = 7.x
+
+; Classes
+;files[] = agres_bookings.controller.inc
+files[] = agres_bookings.install
+files[] = agres_bookings.module
+
+
+
+dependencies[] = agreservations
+;dependencies[] = uc_cart
+;dependencies[] = uc_product
+; Information added by Drupal.org packaging script on 2014-06-28
+version = "7.x-3.x-dev"
+core = "7.x"
+project = "agreservations"
+datestamp = "1403984329"
+

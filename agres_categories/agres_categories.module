@@ -1,0 +1,2836 @@
+<?php
+/**
+ * @file
+ * agres_categories.module
+ * Contains functions to manage categories: Users can create categories like:
+ * Rooms, Houses, cars, Restauranttable and choose properties like ,hourly bookable, daily bookable,...
+ * and assign these categories to a Unit type.
+ */
+require_once('./' . drupal_get_path('module', 'agreservations') . '/includes/agres_funcs.inc');
+//drupal_set_message('<pre>'.print_r(drupal_get_path('module', 'agres_bm'),true).'</pre>');
+//require_once( drupal_get_path('module', 'agres_bm') . '/includes/agres_bm.inc');
+define('BOOKING_MODE_BY_HOURS', '1');
+define('BOOKING_MODE_BY_DAYS', '2');
+define('BOOKING_MODE_PACKAGE', '3');
+define('BOOKING_MODE_HOURLY_PICKUPPLACE', '4');
+define('BOOKING_MODE_PICKUP_PLACE', '4');
+define('CATEGORY_SEARCH_WIDGET_NO_TIMES', '0');
+define('CATEGORY_SEARCH_WIDGET_TIMES', '1');
+//
+
+function agres_categories_init() {
+    if (file_exists(drupal_get_path('module', 'agreservations') . '/js/agresdatechange.js')) {
+        $path = drupal_get_path('module', 'agreservations');
+        drupal_add_js($path . '/js/agresdatechange.js', array('weight' => 1));
+    }
+}
+
+/**
+ * Implements hook_uc_cart_item().
+ */
+function agres_categories_uc_cart_item($op, $item) {
+//    drupal_set_message('<pre>agres_bookings_uc_cart_item'.$op.'--'.print_r($item,true).'</pre>');
+    switch ($op) {
+        case 'load':
+//            drupal_set_message('<pre>agres_bookings_uc_cart_item '.print_r($item,true).'</pre>');
+    }
+}
+//function agres_categories_uc_cart_display(&$item) {
+//    
+////  $coupons = uc_coupon_session_validate($items); // Validate all codes in the session against the cart contents.
+////  if (variable_get('uc_coupon_show_in_cart', TRUE) && !empty($coupons)) {
+//    // If there are some valid coupons, then add them to the cart.
+////    foreach ($items as $kitem => $item) {
+////     drupal_set_message('<pre>agres_categories_uc_cart_display'.print_r($item,true).'</pre>');
+////    }
+////  }
+//}
+function agres_categories_uc_update_cart_item($nid, $data = array(), $qty, $cid = NULL) {
+    if (!$nid) {
+        return NULL;
+    }
+  
+    $cid = !(is_null($cid) || empty($cid)) ? $cid : uc_cart_get_id();
+    if ($qty < 1) {
+        uc_cart_remove_item($nid, $cid, $data);
+    } else {
+        $items = uc_cart_get_contents($cid);
+        foreach ($items as $kitem => $item) {
+//            drupal_set_message('<pre>agres_categories_uc_update_cart_item'.print_r($item,true).'</pre>');
+        }
+        db_update('uc_cart_products')
+                ->fields(array(
+                    'qty' => $qty,
+                    'changed' => REQUEST_TIME,
+                ))
+                ->condition('nid', $nid)
+                ->condition('cart_id', $cid)
+                ->condition('data', serialize($data))
+                ->execute();
+    }
+    uc_cart_get_contents(NULL, 'rebuild');
+}
+
+//
+//
+function agres_categories_views_api() {
+  return array(
+    'api' => 3.0,
+    'path' => drupal_get_path('module', 'agres_categories') . '/views',
+  );
+}
+
+function _agres_categories_unittype_has_cat($unittypenid, $categorynid) {
+    if (isset($categorynid)) {
+        if (is_a($categorynid, 'stdClass')) {
+            $categorynid = $categorynid->nid;
+        }
+    }
+//  $query = db_select('node', 'n');
+//  $query->fields('n', array('nid', 'title'));
+//  $query->condition('n.type', 'agreservations_unittype');
+//  $query->innerJoin('field_data_field_agres_ref_category', 'farc', 'farc.entity_id = n.nid');
+//  $query->where('n.nid = :nidunittype AND farc.field_agres_ref_category_nid = :category', array(':nidunittype' => $unittypenid,':category' => $categorynid));
+//  $query->where('farc.field_agres_ref_category_nid = :category', array(':category' => $categorynid));
+
+    $query = db_select('field_data_field_agres_ref_category', 'farc');
+    $query->fields('farc', array('bundle', 'entity_id', 'field_agres_ref_category_nid'));
+    $query->condition('farc.bundle', 'agreservations_unittype');
+    $query->where('farc.entity_id = :nidunittype AND farc.field_agres_ref_category_nid = :category', array(':nidunittype' => $unittypenid, ':category' => $categorynid));
+//  $query->where('farc.field_agres_ref_category_nid = :category', array(':category' => $categorynid));
+    $res = $query->execute();
+
+    $units = array();
+    $retval = FALSE;
+    while ($unititem = $res->fetchObject()) {
+        $retval = TRUE;
+        break;
+    }
+    return $retval;
+}
+
+//
+///**
+// *  _agres_categories_get_unitnodes_of_category
+// *  Function to get the unitnodes that belong to a category:
+// *  @author     Andreas Gill
+// *  @param      $unittypenid
+// *  @return     array of units
+// *
+// */
+function _agres_categories_get_unitnodes_of_category($nidunittype = NULL, $category = NULL) {
+    if (!$nidunittype) {
+        $query = db_select('node', 'n');
+        $query->fields('n', array('nid', 'title'));
+        $query->condition('n.type', 'agreservations_unit');
+        $query->innerJoin('field_data_field_agreservations_unitnumber', 'fau', 'n.nid = fau.entity_id');
+        $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'faut.entity_id = fau.entity_id');
+        $query->innerJoin('field_data_field_agres_ref_category', 'farc', 'farc.entity_id = faut.field_agreservations_unittype_nid');
+        $query->where('farc.field_agres_ref_category_nid = :category', array(':category' => $category));
+    } else {
+        $query = db_select('node', 'n');
+        $query->fields('n', array('nid', 'title'));
+        $query->condition('n.type', 'agreservations_unit');
+        $query->innerJoin('field_data_field_agreservations_unitnumber', 'fau', 'n.nid = fau.entity_id');
+        $query->innerJoin('field_data_field_agreservations_unittype', 'faut', 'faut.entity_id = fau.entity_id');
+        $query->innerJoin('field_data_field_agres_ref_category', 'farc', 'farc.entity_id = faut.field_agreservations_unittype_nid');
+        $query->where('faut.field_agreservations_unittype_nid = :nidunittype', array(':nidunittype' => $nidunittype));
+        $query->where('farc.field_agres_ref_category_nid = :category', array(':category' => $category));
+    }
+
+    $res = $query->execute();
+//     drupal_set_message('<pre>' . print_r($xres, true) . '</pre>');
+    $units = array();
+    while ($unititem = $res->fetchObject()) {
+        $units[$unititem->nid] = node_load($unititem->nid); //$unititem;
+    }
+
+    return $units;
+}
+
+///**
+// *  Function to get the unittypes of a given category:
+// *
+// */
+function _agres_categories_get_unittypenodes_of_category($catnid = NULL) {
+    if (!isset($catnid)) {
+        $res = db_query("SELECT n.nid, n.title AS title,fdfarc.entity_id,fdfarc.field_agres_ref_category_nid FROM
+          {node} n INNER JOIN {field_data_field_agres_ref_category}
+          fdfarc ON n.nid = fdfarc.entity_id WHERE n.status = 1 AND n.type = 'agreservations_unittype' ORDER BY n.title");
+    } else {
+        $res = db_query("SELECT n.nid, n.title AS title,fdfarc.entity_id,fdfarc.field_agres_ref_category_nid FROM
+          {node} n INNER JOIN {field_data_field_agres_ref_category}
+          fdfarc ON n.nid = fdfarc.entity_id WHERE n.status = 1 AND n.type = 'agreservations_unittype' AND
+          fdfarc.field_agres_ref_category_nid = :catnid ORDER BY n.title", array(':catnid' => $catnid));
+    }
+
+    $unittypes = array();
+
+    foreach ($res as $unittype) {
+        $unittypes[$unittype->nid] = node_load($unittype->nid);
+    }
+
+    return $unittypes;
+}
+
+//
+///* _agres_categories_get_categories
+// * just get all the categories as nidarray
+// * return full nodes = $fullnodes = true
+// */
+//
+function _agres_categories_get_categories($fullnodes = true) {
+    $result = db_query("SELECT n.nid, n.title AS title FROM {node} n WHERE n.status = 1 AND n.type = 'agres_category' ORDER BY n.nid");
+    $categories = array();
+
+    foreach ($result as $category) {
+        if ($fullnodes) {
+            $categories[$category->nid] = node_load($category->nid,null,true);
+        } else {
+            $categories[$category->nid] = $category->title;
+        }
+    }
+    return $categories;
+}
+
+//
+function agres_categories_callback_title_function($title) {
+//drupal_set_message('<pre>d*agres_categories_callback_title_function**nochda__'.print_r($title,true).'</pre>');
+    return t('@title', array('@title' => $title));
+}
+
+//
+function agres_categories_menu() {
+    $items['agrbookingstep1/%node/%'] = array(
+        'title' => t('Choose the Rooms you like.'),
+        'title callback' => 'agres_categories_callback_title_function',
+        'title arguments' => array(2),
+        'page callback' => 'agres_categories_get_unitselect_form',
+        'page arguments' => array(1),
+        'access arguments' => array('access content'),
+        'description' => t('unitsearch'),
+        'type' => MENU_CALLBACK,
+    );
+    $items['agrreturnbooking/%node/%'] = array(
+        'title' => t('Choose the Rooms you like.'),
+        'title callback' => 'agres_categories_callback_title_function',
+        'title arguments' => array(2),
+        'page callback' => 'agres_categories_get_unitselect_form',
+        'page arguments' => array(1),
+        'access arguments' => array('access content'),
+        'description' => t('unitsearch'),
+        'type' => MENU_CALLBACK,
+    );    
+    $items['agrbookingdetails/%node/%'] = array(
+        'title' => t('Additional Info'),
+//        'title callback' => 'agres_categories_callback_title_function',
+//        'title arguments' => array(2),
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('agres_categories_get_details_form'),
+        'access arguments' => array('access content'),
+        'description' => t('unitsearch'),
+//        'type' => MENU_CALLBACK,
+    );
+    $items['agrbookingstep1error/%'] = array(
+        'title' => t('An error occured.'),
+        'page callback' => 'agres_categories_get_errform',
+        'page arguments' => array(1),
+        //            'access arguments' => array('access content'),
+        'description' => t('errorpage'),
+        'type' => MENU_CALLBACK,
+    );
+    $items['agptcallback/%/%/time'] = array(
+        'title' => 'agptcallback',
+        'page callback' => 'agres_categories_page_callback_time',
+        'page arguments' => array(1, 2),
+        'access arguments' => array('access content'),
+        'type' => MENU_CALLBACK,
+    );
+
+    return $items;
+}
+
+function _agres_categories_datepopup_disabledays() {
+//   // retrieve list of dates in %Y-%c-%e format where at least 1 published node
+//  // of type 'event' exists. I use fetchAllKeyed(0,0) method that returns array
+//  // where key=value, so the returned array looks like:
+//  //   array(
+//  //     '2011-11-1' => '2011-11-1',
+//  //     '2011-11-3' => '2011-11-3'
+//  //   );
+//  //
+//  // it's easy to modify the code to return number of items for specific day
+//  // but I didn't need that in my project.
+//  // 'field_date_interval' is the name of my date field attached to node type
+//  // 'event'.
+// 
+//  $dates = db_query("SELECT DATE_FORMAT(date.field_date_interval_value, '%Y-%c-%e') as day
+//  FROM {node} n INNER JOIN {field_data_field_date_interval} date
+//  ON n.vid=date.revision_id
+//  WHERE n.type=:ctype AND n.status=1 GROUP BY day
+//  ORDER BY date.field_date_interval_value ", array(':ctype' => 'event'))->fetchAllKeyed(0,0);
+// 
+//  // renders php array as json
+//  drupal_json_output($dates);
+}
+
+function agres_categories_get_details_form() {    
+      $userrequest = $_SESSION['agreservationuserrequest'];
+      $cat = node_load($userrequest['catnid']);
+      //determine bookingmode and call right function
+//      drupal_set_message('<pre>_agr_searchwidget_form_submit'.print_r($userrequest,true).'</pre>');
+      $langbm = 'und';
+//      $args = array_merge(array($form, &$form_state), $form_state['build_info']['args']);
+      $langbm = field_language('node', $cat, 'field_agres_bookingmode');    
+      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {          
+         if (method_exists ('agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'],'_agr_get_details_form') ){         
+                 $form = array();
+                 $form = call_user_func( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form');
+                 return $form;                             
+         }else{
+             drupal_set_message('function not existing');
+         }
+      }    
+      
+     
+//      if ($cat->field_agres_bookingmode[$langbm][0]['value'] == '3') {
+//          
+//          
+//      }
+//    $flightnumber = '';
+//    $pickupplate = '';
+//    $referencenumber = '';
+//    $numberpersons = '1';
+//    $firstname = '';
+//    $lastname = '';
+//    $email = '';
+//
+//    if (isset($_SESSION['agreservationuserrequest']['numberpassengers'])){
+//        $numberpersons = $_SESSION['agreservationuserrequest']['numberpassengers'];  
+//    }
+//    if (isset($_SESSION['agreservationuserrequest']['firstname'])){
+//        $firstname = $_SESSION['agreservationuserrequest']['firstname'];  
+//    }   
+//    if (isset($_SESSION['agreservationuserrequest']['lastname'])){
+//        $lastname = $_SESSION['agreservationuserrequest']['lastname'];  
+//    }      
+//    if (isset($_SESSION['agreservationuserrequest']['email'])){
+//        $email = $_SESSION['agreservationuserrequest']['email'];  
+//    }   
+//$form = array();
+//
+//        $fieldsetclass = 'agr_additionalinfo_';
+//        if (isset($_SESSION['agreservationuserrequest']['pickuppoint'])){
+//            $fieldsetclass .= $_SESSION['agreservationuserrequest']['pickuppoint'];
+//        }
+//        $fieldsetclassdest = 'agr_additionalinfo_dest_';
+//        if (isset($_SESSION['agreservationuserrequest']['dropoffpoint'])){
+//            $fieldsetclassdest .= $_SESSION['agreservationuserrequest']['dropoffpoint'];
+//        }        
+//$form['agrdetails'] = array(
+//  '#prefix' => '<div class="'.$fieldsetclass.' '.$fieldsetclassdest.'">',
+//  '#type' => 'fieldset',
+////  '#title' => t('Additional Info'),
+//  '#weight' => 5,
+//  '#collapsible' => FALSE,
+//  '#collapsed' => FALSE,
+//    '#suffix' => '</div>',
+//);
+//$form['agrdetails']['numberpersons'] = array(
+//  '#required' => '1',
+//  '#multiple' => '0',
+//  '#key_type_toggled' => '0',
+//  '#default_value' => $numberpersons,
+//  '#weight' => '3',
+//  '#type' => 'select',
+//  '#options' => array(
+//    '1' => t('1'),
+//    '2' => t('2'),
+//    '3' => t('3'),
+//    '4' => t('4'),
+//    '5' => t('5'),
+//    '6' => t('6'),
+//    '7' => t('7'),
+//    '8' => t('8'),
+//    '9' => t('9'),
+//  ),
+//  '#multiple_toggle' => '1',
+//  '#title' => t('Enter Number of Passengers'),
+//);
+//
+//$form['agrdetails']['firstname'] = array(
+//  '#required' => '0',
+//  '#description' => t('First name'),
+//  '#weight' => '5',
+//  '#type' => 'textfield',
+//   '#default_value' => $firstname,
+//  '#title' => t('First name'),
+//);
+//
+//$form['agrdetails']['lastname'] = array(
+//  '#required' => '0',
+//  '#description' => t('last name'),
+//  '#weight' => '6',
+//  '#type' => 'textfield',
+//   '#default_value' => $lastname,
+//  '#title' => t('last name'),
+//);
+//
+//$form['agrdetails']['email'] = array(
+//  '#required' => '0',
+//  '#description' => t('Contact E-Mail'),
+//  '#weight' => '7',
+//  '#type' => 'textfield',
+//   '#default_value' => $email,
+//  '#title' => t('Contact E-Mail'),
+//);
+//
+//
+//  $form['submit'] = array(
+//    '#type' => 'submit',
+//    '#value' => t('Continue'),
+//    '#id' => 'submit-unitselect',
+//      '#submit' => array('agres_categories_get_details_submithandler'),
+//    '#attributes' => array(
+//      'class' => array('submit-additional-info'),
+//    ),
+//      '#weight' => '5',
+//  );
+//  
+//return $form;    
+
+}
+
+/*
+ * Form Validator der ZusatzInformation Website, wird momentan nur für
+ * die Booking modes Package und Hourly Booking mit Pickup Places verwendet (erstes Projekt firstclassbangkok.com
+ */
+function agres_categories_get_details_form_validate($form, &$form_state) { 
+    if (isset($_SESSION['agreservationuserrequest']['returnbooking_additional_services_samevehicle'])){
+        
+    }else{
+      $userrequest = $_SESSION['agreservationuserrequest'];
+      $cat = node_load($userrequest['catnid']);
+      //determine bookingmode and call right function
+      $langbm = 'und';
+      $args = array_merge(array($form, &$form_state), $form_state['build_info']['args']);
+      $langbm = field_language('node', $cat, 'field_agres_bookingmode');    
+      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {          
+         if (method_exists ('agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'],'_agr_get_details_form_validate') ){         
+             call_user_func_array( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form_validate',$args);
+         }else{
+             drupal_set_message('function not existing');
+         }
+      }        
+    }
+
+          
+//           switch ($cat->field_agres_bookingmode[$langbm][0]['value']) {
+//             case '1':
+//                 break;
+//             case '2':
+//                 break;
+//             case '3':
+//                 //PACKAGE BOOKING MODE
+//                             
+//                 call_user_func( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form_validate',$args);
+//                 return $form;                 
+//                 break;
+//             case '4':
+//                 //HOURLY WITH PICKUPPLACE:
+//                       
+//                 call_user_func( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form_validate',$args);
+//                 return $form;
+//                 break;   
+//             case '5':
+//                 break;  
+//             case '6':
+//                 break;  
+//             case '7':
+//                 break;  
+//             case '8':
+//                 break;  
+//             case '9':
+//                 break;                
+//             default:
+//                 break;
+//           }
+//      }
+    //Basic validation first:  
+//    if (($form_state['values']['firstname']=='' || $form_state['values']['firstname']===null) ) {
+//        drupal_set_message(t('Please enter your first name.'), 'error');
+//        return;
+//    }    
+//    if (($form_state['values']['lastname']=='' || $form_state['values']['lastname']===null) ) {
+//        drupal_set_message(t('Please enter your last name.'), 'error');
+//        return;
+//    }    
+//            
+//    if (($form_state['values']['email']=='' || $form_state['values']['email']===null) || !valid_email_address($form_state['values']['email'])) {
+//        drupal_set_message(t('Please enter a valid email address.'), 'error');
+//        return;
+//    }    
+//    
+//    /////////////////////////////
+//    $userrequest = $_SESSION['agreservationuserrequest'];
+//    $selectedunittypenid = $userrequest['selectedunittypenid'];
+//    $selectedunittype = node_load($userrequest['selectedunittypenid']);
+//    $cat = node_load($userrequest['catnid']);
+//    $langbm = 'und';
+//    $langbm = field_language('node', $cat, 'field_agres_bookingmode');
+//    $selcapacity = 4;
+//    $langcap = field_language('node', $selectedunittype, 'field_agreservations_capacity');
+//    $selcapacity = $selectedunittype->field_agreservations_capacity[$langcap][0]['value'];    
+////***************************************Reservation******************************
+//    if ($cat->field_agres_bookingmode[$langbm][0]['value'] == '3') {
+//        //take into account the unpublished reservations from this very session:
+//        $res = null;
+//        if (isset($_SESSION['agreservationuserrequest']['resnid'])) {
+//            $res = node_load($_SESSION['agreservationuserrequest']['resnid']);
+//            if (isset($res) && $res !== false && res !== null && $res->status == 0) {
+//                _agreservations_setstatus_reservation($_SESSION['agreservationuserrequest']['resnid'], TRUE);
+//                $_SESSION['agreservationuserrequest']['tmppublished'] = '1';
+//            }
+//        }
+//        $userrequestunit = array();
+//        $userrequestunit[]['selectunittype'] = $selectedunittypenid;
+//        $unitsToBook = false;
+//        $currentpackage = node_load($_SESSION['agreservationuserrequest']['packagenid']);
+//        $reservable_units = agreservations_get_reservable_items('agreservations_unit', $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+////            drupal_set_message('<pre>reservables: ' . print_r($reservable_units, true) . '   </pre>');
+//        $langcode = field_language('node', $currentpackage, 'field_agr_pack_units');
+//
+//        foreach ($reservable_units as $reskey => $resunit) {
+//            if (in_multi_assoc_array($resunit->nid, $currentpackage->field_agr_pack_units[$langcode])) {
+//                $_SESSION['agreservationuserrequest']['packagenid'] = $currentpackage->nid;
+//                $unitsToBook[] = $resunit;
+//                break; //just 1
+//            }
+//        }
+//        //  remember previous choosed package:
+//        $_SESSION['agreservationuserrequest']['updowngrade'] = array('mode' => 3,
+//            'prodoldnid' => $_SESSION['agreservationuserrequest']['packagenid'],
+//            'prodnewnid' => $_SESSION['agreservationuserrequest']['packagenid'], 'updown' => 0); //  
+//        
+//
+//        if (count($unitsToBook) < 1 || $unitsToBook === false) {
+////*********find Packages with selected pcikup and dropoff points:*********************************        
+//           //$packs = _agres_package_get_packages($_SESSION['agreservationuserrequest']['pickuppoint'], $_SESSION['agreservationuserrequest']['dropoffpoint']);
+//           $packs = _agres_package_get_packages_of_capacity($_SESSION['agreservationuserrequest']['pickuppoint'], $_SESSION['agreservationuserrequest']['dropoffpoint'],$selcapacity);            
+//          // drupal_set_message('<pre>$packs$packs'.print_r($packs,true).'</pre>');           
+//            foreach ($packs as $packkey => $pack) {
+//                $packprices[$packkey] = $pack->sell_price;
+//            }
+//            asort($packprices, SORT_NUMERIC);
+//            //hier anfangen:
+//            $unitsToBook = false;
+//            $unitsToBook = _find_same_level_avbl_packages($packs, $packprices, $currentpackage->sell_price, $userrequest['pickuppoint'], $userrequest['dropoffpoint']);            
+//            if (is_array($unitsToBook)) { 
+//                $newpacakge = node_load($_SESSION['agreservationuserrequest']['packagenid']);
+//                $_SESSION['agreservationuserrequest']['updowngrade']['updown'] = 0;
+//                $_SESSION['agreservationuserrequest']['updowngrade']['prodnewnid'] = $_SESSION['agreservationuserrequest']['packagenid'];
+//                drupal_set_message('<div class="agr_downgradepackagemessage">' . print_r(t('Sorry the selected car was not available, a different car of the same quality was selected: <div class="agr_downgradepackagetitle"> @new. </div>', array('@new' => $newpacakge->title)), true) . '</div>', 'error');                
+//            } else {         
+//            $unitsToBook = false;
+//            $unitsToBook = _find_next_higher_avbl_packages($packs, $packprices, $currentpackage->sell_price, $userrequest['pickuppoint'], $userrequest['dropoffpoint']);
+//            if (is_array($unitsToBook)) {
+//                $prevpackage = node_load($_SESSION['agreservationuserrequest']['prev_upgrade_prodnid']); //agr_get_field_value_from_node_id($_SESSION['agreservationuserrequest']['prev_upgrade_prodnid'],'title');
+////              drupal_set_message('<pre>'.print_r($prevpackage,true).'</pre>');
+//                $newpacakge = node_load($_SESSION['agreservationuserrequest']['packagenid']);
+//                $_SESSION['agreservationuserrequest']['updowngrade']['updown'] = 1;
+//                $_SESSION['agreservationuserrequest']['updowngrade']['prodnewnid'] = $_SESSION['agreservationuserrequest']['packagenid'];
+//                drupal_set_message('<div class="agr_upgradecarmessage">' . print_r(t('Sorry the selected car was not available, you have been upgraded for').'<span class="free">'.t(' free ').'</span>'.t('to').t('<div class="agr_upgradecartitle"> @new. </div>', array('@new' => $newpacakge->title)), true) . '</div>', 'error');
+//            } else {
+//                $unitsToBook = false;
+//                $unitsToBook = _find_next_lower_avbl_packages($packs, $packprices, $currentpackage->sell_price, $userrequest['pickuppoint'], $userrequest['dropoffpoint']);
+//                //find next lower:         
+//                if (!$unitsToBook) {
+//                    drupal_set_message('<div class="agr_noavailablesfound">'.t('Sorry, no available vehicles were found. Please make a different choice!').'</div>', 'error');
+//                    $form_state['redirect'] = 'agrbookingstep1/' . $userrequest['catnid'] . '/' . $userrequest['resformtitel'] . '/' . $userrequest['datstring'];
+////                 $form_state['redirect'] = '';
+//                } else {
+//                    $newpacakge = node_load($_SESSION['agreservationuserrequest']['packagenid']);
+//                    $_SESSION['agreservationuserrequest']['updowngrade']['updown'] = -1;
+//                    $_SESSION['agreservationuserrequest']['updowngrade']['prodnewnid'] = $_SESSION['agreservationuserrequest']['packagenid'];
+//                    drupal_set_message('<div class="agr_downgradepackagemessage">' . print_r(t('Sorry the selected car was not available, you have been downgraded for the lower price - 10% to <div class="agr_downgradepackagetitle"> @new. </div>', array('@new' => $newpacakge->title)), true) . '</div>', 'error');
+//                }
+//            }
+//        }
+//        }
+//        if ((is_array($unitsToBook)) && (count($unitsToBook) > 0)) {
+//            if (isset($res) && $res !== false && $res !== null) {
+////                 drupal_set_message('<pre>call::_agreservations_update_Reservation:::'.print_r($unitsToBook,true).'</pre>');
+//                $resnid = _agreservations_update_Reservation($_SESSION['agreservationuserrequest']['resnid'], $unitsToBook);
+//            } else {
+//                $resnid = _agreservations_create_Reservation($unitsToBook, $userrequest['checkintime'], $userrequest['checkouttime'], NULL, NULL, AGRES_STATUS_ONLINE_NO_ORDER_YET, t('Reservation'), 0);
+//                $_SESSION['agreservationuserrequest']['resnid'] = $resnid;
+//            }
+//        } else {
+//            drupal_set_message(t('Sorry, no units available.'), 'error');
+//            drupal_goto('agrbookingstep1/' . $userrequest['catnid'] . '/' . $userrequest['resformtitel'] . '/' . $userrequest['datstring']);
+//        }
+//    } elseif ($cat->field_agres_bookingmode[$langbm][0]['value'] == '4') {
+////*************************************************by the hour booking:********************************
+////*****************************************************************************************************     
+//        $userrequestunit = array();
+//        $userrequestunit[]['selectunittype'] = $selectedunittypenid;
+//        $selectedunittype = node_load($selectedunittypenid);
+//        //take into account the unpublished reservations from this very session:
+//        $res = null;
+//        if (isset($_SESSION['agreservationuserrequest']['resnid'])) {
+//            $res = node_load($_SESSION['agreservationuserrequest']['resnid']);
+//            if (isset($res) && $res !== false && $res !== null && $res->status == 0) {
+////                _agreservations_setstatus_reservation($_SESSION['agreservationuserrequest']['resnid'], TRUE);
+////                $_SESSION['agreservationuserrequest']['tmppublished'] = '1';
+//            }
+//        }
+////        drupal_set_message('<pre>uuuuuuuuuuuuuuuuuuuuuud'.print_r($res,true).'</pre>');
+////***************************************************************************************
+//        $unitsToBook = false;
+//        $reservable_units = agreservations_get_reservable_items('agreservations_unit', $userrequest['checkintime'], $userrequest['checkouttime'], $userrequest['catnid']);
+//        $reservable_unittypes = _agreservations_get_reservable_unittypes($reservable_units, true);
+//        if (array_key_exists($selectedunittype->nid, $reservable_unittypes)) {
+//            $userrequestunit = array();
+//            $userrequestunit[]['selectunittype'] = $selectedunittype->nid;
+//            $unitsToBook = _agreservations_find_units_for_user_request($userrequestunit, $userrequest['checkintime'], $userrequest['checkouttime'], $userrequest['catnid']);
+//        }
+////***************************************************************************************    
+////  remember previous choosed unittype:
+//        $_SESSION['agreservationuserrequest']['updowngrade'] = array('mode' => 4,
+//            'prodoldnid' => $_SESSION['agreservationuserrequest']['selectedunittypenid'],
+//            'prodnewnid' => $_SESSION['agreservationuserrequest']['selectedunittypenid'], 'updown' => 0);
+//        
+//        if (count($unitsToBook) < 1 || $unitsToBook === false) {
+//            $orderedunittypes = _agres_categories_get_priceordered_products_with_capacity($userrequest['catnid'],$selcapacity);
+//            //$orderedunittypes = _agres_categories_get_priceordered_products($userrequest['catnid']);
+//            $unitsToBook = false;
+//            $unitsToBook = _find_same_level_avbl_unittypes($orderedunittypes, $selectedunittype->sell_price, $userrequest['checkintime'], $userrequest['checkouttime'], $userrequest['catnid']);            
+//            if (is_array($unitsToBook)) {
+//                $newprod = node_load($_SESSION['agreservationuserrequest']['selectedunittypenid']);
+//                $_SESSION['agreservationuserrequest']['updowngrade']['updown'] = 0;
+//                $_SESSION['agreservationuserrequest']['updowngrade']['prodnewnid'] = $_SESSION['agreservationuserrequest']['selectedunittypenid'];
+//                drupal_set_message('<div class="agr_upgradecarmessage">' . print_r(t('Sorry the selected car was not available, a different car of the same price was selected: <div class="agr_upgradecartitle"> @new. </div>', array('@new' => $newprod->title)), true) . '</div>', 'error');
+//            } else {    
+//            $unitsToBook = false;
+//            //remember previous selected unittype:        
+//            $unitsToBook = _find_next_higher_avbl_unittypes($orderedunittypes, $selectedunittype->sell_price, $userrequest['checkintime'], $userrequest['checkouttime'], $userrequest['catnid'], 2);
+//            if (is_array($unitsToBook)) {
+//                $newprod = node_load($_SESSION['agreservationuserrequest']['selectedunittypenid']);
+//                $_SESSION['agreservationuserrequest']['updowngrade']['updown'] = 1;
+//                $_SESSION['agreservationuserrequest']['updowngrade']['prodnewnid'] = $_SESSION['agreservationuserrequest']['selectedunittypenid'];
+//                drupal_set_message('<div class="agr_upgradecarmessage">' . print_r(t('Sorry the selected car was not available, you have been upgraded for').'<span class="free">'.t(' free ').'</span>'.t('to').t('<div class="agr_upgradecartitle"> @new. </div>', array('@new' => $newprod->title)), true) . '</div>', 'error');
+//            } else {
+//                $unitsToBook = false;
+//                $unitsToBook = _find_next_lower_avbl_unittypes($orderedunittypes, $selectedunittype->sell_price, $userrequest['checkintime'], $userrequest['checkouttime'], $userrequest['catnid'], 2);
+//                //find next lower:         
+//                if (!$unitsToBook) {
+//                    drupal_set_message(t('Could not find a unit for the selected type of car! Please make a different choice!'), 'error');
+//                    $form_state['redirect'] = 'agrbookingstep1/' . $userrequest['catnid'] . '/' . $userrequest['resformtitel'] . '/' . $userrequest['datstring'];
+//                } else {
+//                    $newprod = node_load($_SESSION['agreservationuserrequest']['selectedunittypenid']);
+//                    $_SESSION['agreservationuserrequest']['updowngrade']['updown'] = -1;
+//                    $_SESSION['agreservationuserrequest']['updowngrade']['prodnewnid'] = $_SESSION['agreservationuserrequest']['selectedunittypenid'];
+//                    drupal_set_message('<div class="agr_downgradepackagemessage">' . print_r(t('Sorry the selected car was not available, you have been downgraded for the lower price - 10% to <div class="agr_downgradepackagetitle"> @new. </div>', array('@new' => $newprod->title)), true) . '</div>', 'error');
+//                }
+//            }
+//        }
+//        }
+////        drupal_set_message('<pre>agres_categories_get_details_form_validate:::++fdd++----'. print_r($unitsToBook, true) . '</pre>');             
+//        if ((is_array($unitsToBook)) && (count($unitsToBook) > 0)) {
+//            if (isset($res) && $res !== false && $res !== null) {
+////                 drupal_set_message('<pre>call::_agreservations_update_Reservation:::'.print_r($unitsToBook,true).'</pre>');
+//                $resnid = _agreservations_update_Reservation($_SESSION['agreservationuserrequest']['resnid'], $unitsToBook);
+//            } else {
+//                $resnid = _agreservations_create_Reservation($unitsToBook, $userrequest['checkintime'], $userrequest['checkouttime'], NULL, NULL, AGRES_STATUS_ONLINE_NO_ORDER_YET, t('Reservation'), 0);
+//                $_SESSION['agreservationuserrequest']['resnid'] = $resnid;
+//            }
+//        } else {
+//            drupal_set_message(t('Sorry, no units available.'), 'error');
+//        }
+//    }
+/////*************************************************************************************
+/////*************************************************************************************    
+/////*************************************************************************************
+//    $capacity_reservation = 0;
+////      drupal_set_message('<pre>_UNITSTOBOOK: ' . print_r($capacity_reservation, true) . '   </pre>'); 
+//    $capacity_reservation = _agreservations_get_capacity_from_reservation($_SESSION['agreservationuserrequest']['resnid']);
+//    if (intval($form_state['values']['numberpersons']) > intval($capacity_reservation)) {
+//        drupal_set_message('<div class="agr_exceedpassenger">' .t('The number of Passengers you selected exceed the available space! Please choose a different vehicle.').'</div>', 'error');
+//        //choose additional unit but before add to cart this one so it does not get forgotton
+//        //there needs to be implemented a more modern way of doing this in the future...OOP needed.
+//        $packagenode = node_load($_SESSION['agreservationuserrequest']['packagenid']);
+//        $emptyform = array();
+//        _agres_bookings_reserve_and_fillcart($resnid, null, $userrequest, $userrequest['catnid'], $userrequest['selectedunittypenid'], array(), '', $emptyform);
+//        ////////////////////////////////////////////////////////////////////////////////////////////
+//        $_SESSION['agreservationuserrequest']['secondchoice'] = 1;
+//        $_SESSION['agreservationuserrequest']['redirect'] = 'agrbookingstep1/' . $userrequest['catnid'] . '/' . $userrequest['resformtitel'] . '/' . $userrequest['datstring'];
+//        $form_state['redirect'] = 'agrbookingstep1/' . $userrequest['catnid'] . '/' . $userrequest['resformtitel'] . '/' . $userrequest['datstring'];
+//        return;
+//    } else {
+//        $form_state['redirect'] = 'cart';
+//        $_SESSION['agreservationuserrequest']['redirect'] = 'cart';
+//    }
+//
+//    $tmpDateCheckin = date_create($userrequest['checkintime']);
+//    $tmpDateCheckout = date_create($userrequest['checkintime']);
+//    //special for package booking mode:
+}
+
+function agres_categories_get_details_submithandler($form, &$form_state) {
+if (isset($_SESSION['agreservationuserrequest']['returnbooking_additional_services_samevehicle'])){
+    $form_state['redirect']='cart';
+}else{
+      $userrequest = $_SESSION['agreservationuserrequest'];
+      $cat = node_load($userrequest['catnid']);
+      //determine bookingmode and call right function
+      $langbm = 'und';
+      $args = array_merge(array($form, &$form_state), $form_state['build_info']['args']);
+      $langbm = field_language('node', $cat, 'field_agres_bookingmode');    
+      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {          
+         if (method_exists ('agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'],'_agr_get_details_form_submit') ){         
+             call_user_func_array( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form_submit',$args);
+         }else{
+             drupal_set_message('function not existing');
+         }
+      }        
+}
+
+    
+    
+//      $userrequest = $_SESSION['agreservationuserrequest'];
+//      $cat = node_load($userrequest['catnid']);
+//      //determine bookingmode and call right function
+//      $langbm = 'und';
+//      $args = array_merge(array($form, &$form_state), $form_state['build_info']['args']);
+//      $langbm = field_language('node', $cat, 'field_agres_bookingmode');    
+//      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {
+//           switch ($cat->field_agres_bookingmode[$langbm][0]['value']) {
+//             case '1':
+//                 break;
+//             case '2':
+//                 break;
+//             case '3':
+//                 //PACKAGE BOOKING MODE                             
+//                 call_user_func( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form_submit',$args);
+//                 return $form;                 
+//                 break;
+//             case '4':
+//                 //HOURLY WITH PICKUPPLACE:                       
+//                 call_user_func( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_get_details_form_submit',$args);
+//                 return $form;
+//                 break;   
+//             case '5':
+//                 break;  
+//             case '6':
+//                 break;  
+//             case '7':
+//                 break;  
+//             case '8':
+//                 break;  
+//             case '9':
+//                 break;                
+//             default:
+//                 break;
+//           }
+//      }    
+    
+//     drupal_set_message('<pre>dfadfgvadfvagres_categories_get_details_submithandler: ' . print_r($form_state, true) . '   </pre>'); 
+//    //save form entry field values in the session:  
+//     //only if $form_state['redirect']='cart'; only then validation succeeded:
+//    if ($form_state['redirect']=='cart'){
+//    $_SESSION['agreservationuserrequest']['numberpassengers'] = $form_state['values']['numberpersons'];  
+//    $_SESSION['agreservationuserrequest']['firstname'] = $form_state['values']['firstname']; 
+//    $_SESSION['agreservationuserrequest']['lastname'] = $form_state['values']['lastname']; 
+//    $_SESSION['agreservationuserrequest']['email'] = $form_state['values']['email']; 
+//    if (isset($_SESSION['agreservationuserrequest']['firstname'])){
+//        $firstname = $_SESSION['agreservationuserrequest']['firstname'];  
+//    }   
+//    if (isset($_SESSION['agreservationuserrequest']['lastname'])){
+//        $lastname = $_SESSION['agreservationuserrequest']['lastname'];  
+//    }      
+//    if (isset($_SESSION['agreservationuserrequest']['email'])){
+//        $email = $_SESSION['agreservationuserrequest']['email'];  
+//    }      
+//    $userrequest = $_SESSION['agreservationuserrequest'];
+//    if (module_exists('agr_additional_infos')){
+//      $resnid = _agres_additional_infos_update_userrequestdata_to_Reservation($userrequest['resnid'],$userrequest);                      
+//    }
+//    
+//    $selectedunittypenid = $_SESSION['agreservationuserrequest']['selectedunittypenid'];
+//    $selectedunittype = node_load($selectedunittypenid);
+//    
+//    $cat = node_load($userrequest['catnid']);
+//
+//    $langbm = 'und';
+//    $langbm = field_language('node', $cat, 'field_agres_bookingmode');
+//    $tmpDateCheckin = date_create($userrequest['checkintime']);
+//    $tmpDateCheckout = date_create($userrequest['checkintime']);   
+//   // special for package booking mode:
+//    $langc = 'und';
+//    $langc = field_language('node', $selectedunittype, 'field_agreservations_capacity');
+////  $_SESSION['agreservationuserrequest']['capacity']+=$selectedunittype->field_agreservations_capacity[$langc][0]['value'];    
+//    if (isset($userrequest['packagenid'])) {//           
+//        $packagenode = node_load($userrequest['packagenid']);
+//        $langh = 'und';
+//        $langh = field_language('node', $packagenode, 'field_agr_pack_hours');
+//        $hours = $packagenode->field_agr_pack_hours[$langh][0]['value'];
+//        $tmpDateCheckout = $tmpDateCheckout->modify('+' . $hours+1 . ' hours');
+//        $userrequest['checkouttime'] = $tmpDateCheckout->format('Y-m-d H:i:s');
+//        $emptyform = array();   
+//        _agres_bookings_reserve_and_fillcart($_SESSION['agreservationuserrequest']['resnid'], null,$userrequest, $userrequest['catnid'],$userrequest['selectedunittypenid'],array(),'',$emptyform);                      
+//    }else {
+//        $tmpDateCheckout = date_create($userrequest['checkouttime']);   
+//        $emptyform = array();      
+//        _agres_bookings_reserve_and_fillcart( $_SESSION['agreservationuserrequest']['resnid'], null,$userrequest, $userrequest['catnid'],$userrequest['selectedunittypenid'],array(),'',$emptyform);              
+//    }
+//    if (isset($_SESSION['agreservationuserrequest']['redirect'])){        
+//       $form_state['redirect'] = $_SESSION['agreservationuserrequest']['redirect'];
+//    } else {
+//        $form_state['redirect'] = 'cart';
+//    }
+//    }
+////  drupal_set_message('<pre>reeeeeeeeeeeeeeedirect:::++++___' . print_r($form_state['redirect'], true) . '</pre>');
+//        
+////   
+////      drupal_goto('cart');
+}
+
+/**
+ * hook views query alter , alters the query of a view before it gets executet
+ * for example to filter out certain rows from the result, adding where clauses etc.
+ */
+function agres_categories_views_query_alter(&$view, &$query) {
+    
+  if (($view->name == 'agr_select_unit_type_hourly_booking') && isset($_SESSION['agres_categories_availableunittypes'])) {    
+    $agres_categories_availableunittypes = $_SESSION['agres_categories_availableunittypes'];
+    $wheretoadd = array('field' => 'node.nid', 'value' => array_values($agres_categories_availableunittypes), 'operator' => 'in');
+    $query->add_where(0, 'node.nid', array_values($agres_categories_availableunittypes), 'in');
+  }
+}
+
+function agres_categories_get_unitselect_form($category = null) {
+//    drupal_set_message('<pre>d*sdsdvsdvsdv**nochda__'.print_r($category,true).'</pre>');
+    $userrequest = $_SESSION['agreservationuserrequest']; //unserialize($suserrequest);      
+//    drupal_set_message('<pre>agres_bookings_select_unit_btn_form****__'.print_r($userrequest,true).'</pre>');     
+    if (isset($category)) {
+        $langcode = field_language('node', $category, 'field_agres_titleresform');
+        $langcode = i18n_langcode();
+        if (!isset($category->field_agres_titleresform[$langcode])) {
+            $langcode = language_default('language');
+            if (!isset($category->field_agres_titleresform[$langcode])) {
+                $langcode = 'und';
+            }
+        }
+        $langcode_caus = 'und';
+        $langcode_caus = field_language('node', $category, 'field_agres_unitselectionmethod');
+//        $category->field_agres_titleresform[$langcode][0]['safe_value']
+        $langbm = 'und';
+        $langbm = field_language('node', $category, 'field_agres_bookingmode');
+        if (module_exists('agres_place') && $category->field_agres_bookingmode[$langbm][0]['value'] == '4') {
+//****************************************************************************************////////    
+//++++++++++++++++++ Unit Selection in booking mode Hourly with Pickup Place selection:+++++++++++
+//******************************************************************************************//////     
+//                if (isset($userrequest['resnid']) && node_load($userrequest['resnid'])) {
+//                    $tres = node_load($userrequest['resnid']);
+//                 drupal_set_message('<pre>_agreservations_setstatus_reservation_agreservations_setstatus_reservation'.print_r($tres,true).'</pre>');
+//                    
+//                }            
+            $outputunitselection = '';
+            $build = array();
+            if (isset($userrequest['secondchoice']) && ($userrequest['secondchoice']) == 1) {
+                if (isset($userrequest['resnid']) && node_load($userrequest['resnid'])) {
+//                    _agreservations_setstatus_reservation($userrequest['resnid'], 1);
+                }else{
+                    unset($userrequest['resnid']);
+                    unset($_SESSION['agreservationuserrequest']['resnid']);
+                }
+                
+                $tmpDateCheckin = date_create($userrequest['checkintime']);
+                $tmpDateCheckout = date_create($userrequest['checkintime']);
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $tmpDateCheckin->format('Y-m-d H:i'), $tmpDateCheckout->format('Y-m-d H:i'), $userrequest['catnid']);
+                $reservable_unittypes = _agreservations_get_reservable_unittypes($reservable_units, true);
+                if (node_load($userrequest['resnid'])) {
+                    _agreservations_setstatus_reservation($userrequest['resnid'], 0);
+                }else{
+                    unset($userrequest['resnid']);
+                    unset($_SESSION['agreservationuserrequest']['resnid']);
+                }
+                $tmpavailableutypes = array();
+                foreach ($reservable_unittypes as $knid => $reservable_unittype) {
+                    $tmpavailableutypes[] = $knid;
+                }
+                $_SESSION['agres_categories_availableunittypes'] = $tmpavailableutypes;
+//    drupal_set_message('<pre>agres_bookings_select_unit_btndd_form****__'.print_r($tmpavailableutypes,true).'</pre>');     
+            } else {
+//                drupal_set_message('<pre>agres_bookings_select_unit_btn_form****__'.print_r($userrequest,true).'</pre>'); 
+                unset($_SESSION['agres_categories_availableunittypes']);
+                //no second choice, so eventually just clicked change,
+
+            }
+        
+            if ($agrselunitview = views_get_view('agr_select_unit_type_hourly_booking')) {
+                // Force the breadcrumb path to this page.
+                // Force the breadcrumb path to this page.
+//                drupal_set_message('<pre>agres_bookings_select_unit_btndd_form****__'.print_r($_SESSION['agreservationuserrequest']['vdest'],true).'</pre>');     
+                if (isset($_SESSION['agreservationuserrequest']['vdest'])){
+                    $agrselunitview->override_path = $_SESSION['agreservationuserrequest']['vdest'];
+                }else{
+                    $agrselunitview->override_path = 'catalog';
+                }
+                $outputunitselection.= '<div><b>' . t('Booking On %checkin ', array('%checkin' => $userrequest['checkintime'],)) . '</b></div></br>';
+                $build['units'] = array(
+                    '#markup' => $agrselunitview->execute_display('agr_select_unit_type_hourly_booking'),
+                );
+            }
+            $outputunitselection .= drupal_render($build['units']);
+            $outputunitselection .= '<br><a class="Button" href="' . base_path() . '"><span class="btn">' . '&nbsp&nbsp' . t('back') . '&nbsp&nbsp' . '</span></a>';
+            return $outputunitselection;
+//****************************************************************************************////////    
+//------------------ END Selection in booking mode Hourly with Pickup Place selection:------------
+//******************************************************************************************//////              
+        } elseif (module_exists('agres_package') && $category->field_agres_bookingmode[$langbm][0]['value'] == '3') {
+//****************************************************************************************////////    
+//++++++++++++++++++ Unit Selection in booking mode Package Booking:+++++++++++++++++++++++++++++
+//******************************************************************************************////// 
+        if (isset($userrequest['secondchoice']) && ($userrequest['secondchoice']) == 1) {
+            
+        } else{
+             //no second choice, so eventually just clicked change,
+             //in that case, remove eventually existing units from the eventually existing reservations
+//            drupal_set_message('<pre>ppppppp****__'.print_r($userrequest,true).'</pre>'); 
+//                if (isset($userrequest['resnid'])&&(node_load($userrequest['resnid']))) {
+//                    node_delete($userrequest['resnid']);
+//                    unset($_SESSION['agreservationuserrequest']['packagenid']);
+//                    unset($_SESSION['agreservationuserrequest']['selectedunittypenid']);
+////                  _agreservations_setstatus_reservation($userrequest['resnid'], 1);  
+//                }
+        }
+            $outputunitselection = '';
+            $build = array();
+            if ($agrselunitview = views_get_view('agr_select_unit_type')) {
+                // Force the breadcrumb path to this page.
+                if (isset($_SESSION['agreservationuserrequest']['vdest'])){
+                    $agrselunitview->override_path = $_SESSION['agreservationuserrequest']['vdest'];
+                }else{
+                    $agrselunitview->override_path = 'catalog';
+                }
+                
+//                $agrselunitview->override_path = 'catalog';
+                $outputunitselection.= '<div><b>' . t('Booking On %checkin ', array('%checkin' => $userrequest['checkintime'],)) . '</b></div></br>';
+                $build['units'] = array(
+                    '#markup' => $agrselunitview->execute_display('agr_select_unit_type', array($userrequest['pickuppoint'], $userrequest['dropoffpoint'])),
+                );
+//                drupal_set_message('<pre>');
+            }
+            $outputunitselection .= drupal_render($build['units']);
+            $outputunitselection .= '<br><a class="Button" href="' . base_path() . '"><span class="btn">' . '&nbsp&nbsp' . t('back') . '&nbsp&nbsp' . '</span></a>';
+            return $outputunitselection;
+//****************************************************************************************////////    
+//------------------ END Unit Seclection in booking mode Package Booking:-----------------------
+//******************************************************************************************//////             
+        } else {
+            if ($category->field_agres_unitselectionmethod[$langcode_caus][0]['value'] == '2') {
+
+                if (!isset($_SESSION['availableunittypes']) || !isset($_SESSION['agreservationuserrequest'])) {
+                    drupal_goto();
+                }
+                $availableunittypes = $_SESSION['availableunittypes'];
+                $userrequest = $_SESSION['agreservationuserrequest']; //unserialize($suserrequest);//
+//      $productarray = array();
+//    //////////////////////////////////////////////////////////////////////
+                $resnodes = agreservations_get_reservable_items('agreservations_unit', $userrequest['checkintime'], $userrequest['checkintime'], $category->nid);
+                $availableunittypes = _agreservations_get_reservable_unittypes($resnodes, FALSE);
+/////////////////////////////////////////////////////////////////////////////
+                $productarray = array();
+                foreach ($availableunittypes as $availableunittype) {
+                    $productarray[] = $availableunittype['rtnode']->nid;
+                }
+                $_SESSION['agres_bookings_productsavailable'] = $productarray;
+                $bookableproducts = '';
+                $bookableproducts .= '<a class="Button" href="' . base_path() . '"><span class="btn">' . '&nbsp&nbsp' . t('back') . '&nbsp&nbsp' . '</span></a><br>';
+                $items = uc_cart_get_contents(uc_cart_get_id());
+                if (count($items) == 0) {
+                    $bookableproducts .= '<div><b>' . t('Booking From %checkin to %checkout', array('%checkin' => $userrequest['checkintime'], '%checkout' => $userrequest['checkouttime'])) . '</b></div>';
+                } else {
+                    $cartinfoform = drupal_get_form('agres_bookings_cart_info_form');
+                    $bookableproducts .= drupal_render($cartinfoform);
+
+                    $cartviewform = drupal_get_form('uc_cart_view_form', $items); // drupal_get_form('agres_bookings_cart_view_form', $items);
+                    $bookableproducts .='<div id="ajxagrcartview">';
+                    $bookableproducts .= drupal_render($cartviewform);
+                    $bookableproducts .='</div>';
+                    $bookableproducts .= '<div><h3>' . t('Choose items:') . '</h3></div>';
+                }
+                $build = array();
+                if ($agrproductresult = views_get_view('agres_uc_catalog')) {
+                    // Force the breadcrumb path to this page.
+                    $agrproductresult->override_path = 'catalog';
+
+                    $build['products'] = array(
+                        '#markup' => $agrproductresult->execute_display('agres_uc_catalog'),
+                    );
+                }
+                $bookableproducts .= drupal_render($build['products']);
+                $bookableproducts .= '<br><a class="Button" href="' . base_path() . '"><span class="btn">' . '&nbsp&nbsp' . t('back') . '&nbsp&nbsp' . '</span></a>';
+                return $bookableproducts;
+            } else {
+
+                return drupal_get_form('_agres_categories_form_standard', $category);
+            }
+        }
+    } else {
+        return array();
+    }
+}
+
+//
+function agres_categories_dv($setValue, $default = '') {
+    return ($setValue === NULL) ? $default : $setValue;
+}
+
+//
+///*
+// * agres_categories_form
+// * formbuilder function, no need to use hook_forms for this,
+// * because only 1 at a time will be active of this form for each
+// * categoy that exists on the drupalinstallaltion.
+// */
+//
+function _agres_categories_form_standard($object, &$form_state) {
+    $form = array();
+    if (isset($form_state['build_info']['args'][0])) {
+        $category = $form_state['build_info']['args'][0];
+    } else {
+        drupal_set_message(t('no Category Object found!'));
+        $form['err'] = array(
+            '#type' => 'item',
+            '#markup' => '<div><b>' . t('no Category Object found!') . '</b></div>',
+        );
+        return $form;
+    }
+    $langcode = 'und';
+    $langcode = field_language('node', $category, 'field_agres_titleresform');
+    $breadcrumb = array();
+    $breadcrumb[] = l('Home', '<front>');
+    if (isset($category->field_agres_titleresform) && count($category->field_agres_titleresform) > 0) {
+        $breadcrumb[] = l($category->field_agres_titleresform[$langcode][0]['safe_value'], 'agrbookingstep1/' . $category->nid . '/' . $category->field_agres_titleresform[$langcode][0]['safe_value']);
+    }
+    // 
+//drupal_set_message('<pre>stepstep:'.print_r($form_state['build_info']['step'],true).'</pre>');
+    if (isset($category)) {
+        if (empty($form_state['build_info']['step'])) {
+            // we are coming in without a step, so default to step 1
+            $form_state['build_info']['step'] = 1;
+        }
+        $availableunittypes = $_SESSION['availableunittypes'];
+        $userrequest = $_SESSION['agreservationuserrequest']; //unserialize($suserrequest);
+        //
+        $locoptions = array();
+        foreach ($availableunittypes as $availableunittype) {
+            $langcode_au = 'und';
+            $langcode_au = field_language('node', $availableunittype['rtnode'], 'field_agreservations_capacity');
+            if (!isset($availableunittype['rtnode']->field_agreservations_capacity[$langcode_au])) {
+                $langcode_au = 'und';
+            }
+
+            $locoptions[$availableunittype['rtnode']->nid] = $availableunittype['rtnode']->title . ' ' . t('Capacity: ')
+                    . $availableunittype['rtnode']->field_agreservations_capacity[$langcode_au][0]['value']; // . ' ' . t('Price: ') . uc_store_format_price_field_value($availableunittype['rtnode']->sell_price);
+        }
+
+//    //on Every Step: ,
+        $form['timeinfo'] = array(
+            '#type' => 'item',
+            //    '#title' => t('From'),
+            '#markup' => '<div><b>' . t('From %checkin to %checkout', array('%checkin' => $userrequest['checkintime'], '%checkout' => $userrequest['checkouttime'])) . '</b></div>',
+        );
+        $langcode_cn = 'und';
+        $langcode_cn = field_language('node', $category, 'field_agres_catname');
+        $langcode_ap = 'und';
+        $langcode_ap = field_language('node', $category, 'field_agres_askpersons');
+
+        switch ($form_state['build_info']['step']) {
+            /*             * ******************************************************************** */
+            /*             * ********************STEP 1.:**************************************** */
+            case 1:
+                $form['unitinfo'] = array(
+                    '#type' => 'fieldset',
+                    '#title' => $category->field_agres_catname[$langcode_cn][0]['value'] . ' ' . t('Informations:'),
+                    '#collapsible' => FALSE,
+                    '#tree' => TRUE,
+                ); //$userrequest['requestedunits']
+
+                for ($i = 1; $i <= $userrequest['requestedunits']; $i++) {
+                    $form['unitinfo'][$i] = array(
+                        '#type' => 'fieldset',
+                        '#title' => $category->field_agres_catname[$langcode_cn][0]['safe_value'] . ' ' . $i,
+                        '#collapsible' => FALSE,
+                        '#tree' => TRUE,
+                    );
+                    /*                     * ************************************************************************************************ */
+                    $tmpagres_onlineformjelements = variable_get('agres_onlineformjelements', 'standard');
+                    $form_state['build_info']['values'] = array();
+                    if (($category->field_agres_askpersons[$langcode_ap][0]['value'] == 1) || ($category->field_agres_askpersons[$langcode_ap][0]['value'] == 3)) {
+                        $form['unitinfo'][$i]['adults'] = array(
+                            '#prefix' => '<div>',
+                            '#type' => 'select',
+                            '#title' => t('Persons'),
+                            '#default_value' => 1, //agres_categories_dv($form_state['build_info']['values'][1]['unitinfo'][$i]['adults']),
+                            '#options' => array(
+                                1 => 1,
+                                2 => 2,
+                                3 => 3,
+                                4 => 4,
+                                5 => 5,
+                                6 => 6,
+                                7 => 7,
+                                8 => 8,
+                                9 => 9,
+                                10 => 10,
+                            ),
+                            '#suffix' => '</div>',
+                        );
+                    }
+                    /*                     * *********************************************************************************************** */
+                    $selectedunitnid = key($locoptions); //agres_onlineformj_dv($form_state['storage']['values'][1]['unitinfo'][$i]['selectunittype']);
+
+                    $selectedunitnode = node_load($selectedunitnid, NULL, TRUE);
+                    $form['unitinfo'][$i]['selectunittype'] = array(
+                        '#type' => 'select',
+                        '#title' => t('Type of') . ' ' . $category->field_agres_catname[$langcode_cn][0]['safe_value'],
+                        //            '#default_value' => agres_categories_dv($form_state['build_info']['values'][1]['unitinfo'][$i]['selectunittype']), //variable_get('feed_item_length','teaser'),
+                        '#options' => $locoptions,
+                        '#description' => t('select the') . ' ' . $category->field_agres_catname[$langcode_cn][0]['safe_value'] . ' ' . t('type'),
+                        '#suffix' => '<div id="wrapper-' . $i . '"> </div>',
+                        '#ahah' => array(
+                            'event' => 'change',
+                            'path' => 'agres-categoriesformj-callback/' . $i,
+                            'wrapper' => 'wrapper-' . $i,
+                            'method' => 'replace',
+                        ),
+                    );
+                }
+                if (!module_exists('uc_cart')) {
+                    $form['contactdata'] = array(
+                        '#type' => 'fieldset',
+                        '#title' => t('Contact Data:'),
+                        '#collapsible' => FALSE,
+                        '#tree' => TRUE,
+                    ); //$userrequest['requestedunits']
+                    $lastnamedef = '';
+                    if (isset($form_state['build_info']['storage']['values'][1]['contactdata']['lastname'])) {
+                        $lastnamedef = $form_state['build_info']['storage']['values'][1]['contactdata']['lastname'];
+                    }
+                    $form['contactdata']['lastname'] = array(
+                        '#type' => 'textfield',
+                        '#title' => t('Last Name'),
+                        '#default_value' => $lastnamedef,
+                        '#size' => 60,
+                        '#maxlength' => 128,
+                        '#required' => TRUE,
+                    );
+                    $firstnamedef = '';
+                    if (isset($form_state['build_info']['storage']['values'][1]['contactdata']['firstname'])) {
+                        $firstnamedef = $form_state['build_info']['storage']['values'][1]['contactdata']['firstname'];
+                    }
+                    $form['contactdata']['firstname'] = array(
+                        '#type' => 'textfield',
+                        '#title' => t('First Name'),
+                        '#default_value' => $firstnamedef,
+                        '#size' => 60,
+                        '#maxlength' => 128,
+                        '#required' => TRUE,
+                    );
+                    $phonenr = '';
+                    if (isset($form_state['build_info']['storage']['values'][1]['contactdata']['phone_number'])) {
+                        $phonenr = $form_state['build_info']['storage']['values'][1]['contactdata']['phone_number'];
+                    }
+                    $form['contactdata']['phone_number'] = array(
+                        '#type' => 'textfield',
+                        '#title' => t('Phone Number'),
+                        '#default_value' => $phonenr,
+                        '#size' => 60,
+                        '#maxlength' => 128,
+                        '#required' => TRUE,
+                    );
+
+                    $emailaddress = '';
+                    if (isset($form_state['build_info']['storage']['values'][1]['contactdata']['emailaddress'])) {
+                        $emailaddress = $form_state['build_info']['storage']['values'][1]['contactdata']['emailaddress'];
+                    }
+                    $form['contactdata']['emailaddress'] = array(
+                        '#type' => 'textfield',
+                        '#title' => t('EMail'),
+                        '#default_value' => $emailaddress,
+                        '#size' => 60,
+                        '#maxlength' => 128,
+                        '#required' => TRUE,
+                    );
+                }
+                break;
+            case 6:
+                /*                 * ********************************************************************************* */
+                /*                 * *********************************STEP 2.:**************************************** */
+                $form['field2'] = array(
+                    '#type' => 'textfield',
+                    '#default_value' => agres_categories_dv($form_state['build_info']['values'][2]['field2']),
+                    '#title' => t('Test Field 2'),
+                );
+                break;
+            case 2:
+//         drupal_set_message('<pre>step2----'.print_r($form_state['build_info']['values'],true).'</pre>');
+                /*                 * ******************************************************************** */
+                /*                 * ********************STEP 3.:Final Page Show summary***************** */
+                $contentformsummary = '';
+                $contentcontactdata = '';
+                foreach ($form_state['build_info']['storage']['values'] as $fstep) {
+                    if (array_key_exists('unitinfo', $fstep)) {
+                        $iz = 0;
+
+                        foreach ($fstep['unitinfo'] as $rinfo) {
+                            $iz++;
+                            $contentformsummary = $contentformsummary . t($iz . '.unit: ' . $locoptions[$rinfo['selectunittype']]) .
+                                    ', Persons: ' . $rinfo['adults'] . '<br>';
+                        }
+                    }
+                }
+                foreach ($form_state['build_info']['storage']['values'] as $fstep) {
+                    if (array_key_exists('contactdata', $fstep)) {
+                        $it = 0;
+
+//            foreach ($fstep['contactdata'] as $rinfo) {
+                        $it++;
+                        $contentcontactdata = $contentcontactdata . t($it . '.Contact Data: ') . '<br>' .
+                                $fstep['contactdata']['lastname'] . ', ' . $fstep['contactdata']['firstname'] . '<br>' .
+                                t($it . '.Phone Number: ') . $fstep['contactdata']['phone_number'] . '<br>' .
+                                '<br>';
+//            }
+                    }
+                }
+//$form['contact_information'] = array(
+//  '#markup' => variable_get('contact_form_information', t('You can leave us a message using the contact form below.')),
+//);
+                $form['contact_information'] = array(
+                    '#markup' => '<b>' . t('Please check the data you provided before continuing: ') . '</b><br>' . $contentformsummary .
+                    '<br>' . $contentcontactdata,
+                );
+
+                break;
+            default:
+
+                break;
+        }
+
+        //don't show back button on first tab
+
+
+        if ($form_state['build_info']['step'] > 1) {
+            $form['previous'] = array(
+                '#type' => 'submit',
+                '#value' => '<< Previous',
+            );
+        }
+
+        $form['cancel'] = array(
+            '#type' => 'submit',
+            '#value' => 'cancel',
+        );
+
+//    if ($form_state['build_info']['step'] < 2) {
+        $form['next'] = array(
+            '#type' => 'submit',
+            '#value' => 'next',
+        );
+//    }
+//    else {
+//      $form['tocheckout'] = array(
+//        '#type' => 'submit',
+//        '#value' => 'continue with booking',
+//      );
+//    }
+    } else {
+        $form['Error'] = array(
+            '#type' => 'markup',
+            '#value' => '<div>' . t('Error, no category set!') . '</div>',
+            '#collapsible' => FALSE,
+        );
+    }
+    return $form;
+}
+
+//
+function _agres_categories_form_standard_validate($form, &$form_state) {
+   
+    $userrequest = $_SESSION['agreservationuserrequest'];
+    //Only validate if not previous or cancel-button was clicked.
+    if (isset($form_state['build_info']['args'][0])) {
+        $category = $form_state['build_info']['args'][0];
+    }
+    if (($form_state['values']['op'] !== '<< Previous') && ($form_state['values']['op'] !== 'cancel')) {
+        foreach ($form_state['values']['unitinfo'] as $unitinfo) {
+            if ($unitinfo['selectunittype'] === '') {
+                form_set_error('unitinfo[' . $key . ']', t('error while selecting, please try again.'));
+            }
+        }
+        $resnodes = agreservations_get_reservable_items('agreservations_unit', $userrequest['checkintime'], $userrequest['checkouttime'], $category->nid);
+        $availableunittypes = _agreservations_get_reservable_unittypes($resnodes, FALSE);
+        $tmpcountselectedtypes = array();
+        foreach ($form_state['values']['unitinfo'] as $key => $unitinfo) {
+            if (isset($unitinfo['adults'])) {
+                $lang = 'und';
+                $lang = field_language('node', $availableunittypes[$unitinfo['selectunittype']]['rtnode'], 'field_agreservations_capacity');
+                if (intval($unitinfo['adults']) > intval($availableunittypes[$unitinfo['selectunittype']]['rtnode']->field_agreservations_capacity[$lang][0]['value'])) {
+                    form_set_error('unitinfo[' . $key . '][adults]', t('Too many persons for roomtype in room entry: ' . $key));
+                }
+            }
+            if (array_key_exists($unitinfo['selectunittype'], $tmpcountselectedtypes)) {
+                $tmpcountselectedtypes[$unitinfo['selectunittype']]['numberofselections'] += 1;
+            } else {
+                $tmpcountselectedtypes[$unitinfo['selectunittype']]['numberofselections'] = 1;
+            }
+        }
+
+        foreach ($availableunittypes as $availableunittype) {
+
+            if (array_key_exists($availableunittype['rtnode']->nid, $tmpcountselectedtypes)) {
+
+                if ($tmpcountselectedtypes[$availableunittype['rtnode']->nid]['numberofselections'] > $availableunittype['count']) {
+
+                    form_set_error('unitinfo', t('Not enough free unit types of ' . $availableunittype['rtnode']->title));
+                }
+            }
+        }
+      
+    }
+}
+
+function _agres_categories_form_standard_submit($form, &$form_state) {
+ 
+    if (isset($form_state['build_info']['args'][0])) {
+        $category = $form_state['build_info']['args'][0];
+    } else {
+        drupal_set_message(t('no Category Object found!'));
+        return;
+    }
+
+    $form_state['build_info']['storage']['values'][$form_state['build_info']['step']] = $form_state['values'];
+    $form_state['rebuild'] = TRUE;
+    if ($form_state['clicked_button']['#id'] == 'edit-cancel') {
+        $form_state['rebuild'] = TRUE;
+        unset($_SESSION['agreservationuserrequest']);
+        unset($form_state['build_info']['values']);
+        _agres_categories_formsubmitter();
+    } elseif ($form_state['clicked_button']['#id'] == 'edit-previous') {
+        $form_state['build_info']['storage']['values'][$form_state['build_info']['step']] = $form_state['values'];
+        $form_state['rebuild'] = TRUE;
+        $form_state['build_info']['step'] --;
+    } elseif ($form_state['clicked_button']['#id'] == 'edit-next') {
+        $form_state['build_info']['step'] ++;
+        /*         * ***********Here starts UBERCART************************* */
+        $userrequest = $_SESSION['agreservationuserrequest'];
+        $agreservations_request = array(
+            $form_state['build_info']['storage']['values'][1]['unitinfo'],
+            array(
+                $userrequest['checkintime'],
+                $userrequest['checkouttime'],
+            ),
+        );
+
+//    drupal_set_message('<pre>dfdfg'.print_r($category,true).'</pre>');
+        if (module_exists('uc_cart')) {
+//        drupal_set_message('<pre>if (module_exists())_submit----'.print_r($form_state['build_info']['storage']['values'],true).'</pre>');
+            _agres_bookings_reserve_and_fillcart(null, null, $userrequest, $category->nid, 0, $form_state['build_info']['storage']['values'][1]['unitinfo'], 'cart', $form_state);
+//            drupal_set_message('<pre>if (module_exists())_submit----'.print_r($form_state,true).'</pre>');
+        } else {
+            if ($form_state['build_info']['step'] == 3) {
+                
+            }
+
+            $to = variable_get('agr_receptionist_email', '');
+            drupal_mail('agreservations', 'res_request', $to, language_default(), $params = array(
+                'lastname' => $form_state['values']['contactdata']['lastname'],
+                'firstname' => $form_state['values']['contactdata']['firstname'],
+                'phone' => $form_state['values']['contactdata']['phone_number'],
+                'email' => $form_state['values']['contactdata']['emailaddress'],
+//                  'mailsubject'=>t('%name: a reservation has been requested',array('%name' => variable_get('site_name','Drupal'))),
+                'userrequest' => $userrequest,
+                    ), $from = variable_get('site_mail', ''), TRUE);
+//      $resnid = _agreservations_update_Reservation($resnid, $unitsToBook, $userrequest['checkintime'], $userrequest['checkouttime'], NULL, NULL, AGRES_STATUS_ONLINE_NO_ORDER_YET);              
+//      drupal_set_message('<pre>request:'.print_r($form_state['values']['contactdata'],true).'</pre>');
+//      drupal_mail('agreservations', 'agr_request', 'andreas@amgsoft.de', null, array(),null , true);
+//      drupal_mail('agreservations', 'request', 'andreas@amgsoft.de', 'de')
+//      drupal_mail()
+        }
+    }
+}
+
+function _agres_categories_formsubmitter($destination = '') {
+    drupal_goto($destination);
+}
+
+///**
+// * Implementation of hook_cart_display().
+// ...move this to agres_bookings??
+// */
+function agres_categories_uc_cart_display($item) {
+//drupal_set_message('<pre>agres_categories_uc_cart_display'.print_r($item,true).'</pre>');
+
+    $node = node_load($item->nid);
+    $element = array();
+    $element['nid'] = array('#type' => 'value', '#value' => $node->nid);
+    $element['module'] = array('#type' => 'value', '#value' => 'uc_product');
+  $element['remove'] = array('#type' => 'checkbox');
+///////////////////////////////////////////agreservations/////////////////////////////
+    if (isset($item->data['measuringunit'])){
+        $tmeasuringunit = $item->data['measuringunit'];
+    }else {
+        $tmeasuringunit = t('times');
+    }
+    
+    $itemtitle = '';
+    $itemtitle = node_access('view', $node) ? l($item->title, 'node/' . $node->nid) : check_plain($item->title);
+    $title = $item->qty / $item->data['times']; //$item->data['agres_diffproducts'];
+    
+    $title .= ' X ' . $itemtitle;
+    $loptions = array(
+        'attributes' => array(),
+        'html' => TRUE,
+    );
+   
+//  drupal_set_message('<pre>agres_categories_uc_cart_display '.print_r($item,true).'</pre>');
+   
+//   if (!isset($item->data['bookingmode'])||$item->data['bookingmode']<>'package'){
+    if (isset($item->data['agres_singletimes'])) {
+//    drupal_set_message('<pre>agres_singletimes'.print_r($item->data['agres_singletimes'],true).'</pre>');
+        if (count($item->data['agres_singletimes']) > 1) {
+//           drupal_set_message('<pre>agres_singletimes'.print_r($item->data['agres_singletimes'],true).'</pre>');
+            if (strpos($title, $item->data['agres_singletimes'][0] . '<br>' . t('Until:') . end($item->data['agres_singletimes']) . ' (' . t('included') . ')' . ' = ' . $tmeasuringunit . ' count: ' . count($item->data['agres_singletimes']), 0) == false) {
+                $title .= '<br>' . t('From:') . $item->data['agres_singletimes'][0] . '<br>' . t('Until:') . end($item->data['agres_singletimes']) . ' (' . t('included') . ')' . ' = ' . $tmeasuringunit . ' count: ' . count($item->data['agres_singletimes']);
+            }
+        } else {
+            // if (strpos($title, $item->data['agres_singletimes'][0].', '.end($item->data['agres_singletimes']).' = '.$tmeasuringunit.' count: '.count($item->data['agres_singletimes']),0)==false){
+            if (strpos($title, $item->data['agres_singletimes'][0], 0) == false) {
+                $title .= '<br>' . $item->data['agres_singletimes'][0];
+            }
+        }
+    } else {
+        $title .= ( $item->data['times'] > 1) ? '' . ' ' . $item->data['times'] . ' <-> ' . $tmeasuringunit . ' count' : ' ' . $item->data['times'] . $tmeasuringunit . ' counts';
+    }
+//   }
+//////////////////////////////////////////////////////////////////////////////////////
+   $returnbbookinglink = '';
+   
+   if (isset($item->data['bookingmode'])) {
+//      drupal_set_message('<pre>ddd::::'. 'agres_bm_'.$item->data['bookingmode'].'::_agr_searchwidget_form'.print_r($item->data['bookingmode'],true).'</pre>');
+      $arguments = array($item);
+         if (method_exists ('agres_bm_'.$item->data['bookingmode'],'_agr_return_booking_link') ){    
+             if ($item->data['returnbooking']==1){
+                 if (strpos($element['title']['#markup'], t('Return Booking:'))===FALSE ){
+                     $title = t('Return Booking:').' '.$title;
+                 }else{
+//                     $title = t('Return Booking:').' '.$title;
+                 }
+                 
+                 
+             }else{
+//               drupal_set_message('<pre>categorie::::'. 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form'.print_r($cat->field_agres_bookingmode[$langbm],true).'</pre>');
+                 $returnbbookinglink = call_user_func_array( 'agres_bm_'.$item->data['bookingmode'].'::_agr_return_booking_link',$arguments);
+//                 drupal_set_message('<pre>gdfdfgdf::::'.print_r($returnbbookinglink,true).'</pre>');   
+                 $title .= '</br>'.$returnbbookinglink;                 
+             }
+
+         } 
+   }
+/////////////////////////////////////////////////////////////////////////////////////////   
+    $element['title'] = array(
+        '#markup' => $title,
+    );
+    $item_price = $item->price * 1;
+//  
+    if (module_exists('uc_taxes')) {
+
+
+        list($amount, $suffixes) = uc_taxes_get_included_tax($item);
+//  drupal_set_message('<pre>agres_singletimes'.print_r($suffixes,true).'</pre>');
+        $item_price += $amount;
+    }
+    $element['unit_price'] = array(
+        '#markup' => theme('uc_price', array('price' => $item_price)),
+    );
+    $element['#total'] = $item->price * $item->qty;
+//  $element['unit_price'] = $item->price;
+    $element['#suffixes'] = array();
+    $element['data'] = array('#type' => 'hidden', '#value' => serialize($item->data));
+    $element['qty'] = array(
+        '#type' => 'uc_quantity',
+        '#title' => t('Quantity'),
+        '#title_display' => 'invisible',
+        '#default_value' => $item->qty,
+        '#allow_zero' => TRUE,
+    );
+
+    $element['description'] = array('#markup' => '');
+    if ($description = uc_product_get_description($item)) {
+        $element['description']['#markup'] = $description;
+    }
+
+    return $element;
+}
+
+// search form for entering searchcriteria for bookable units:
+// search form for entering searchcriteria for bookable units:
+function agres_categories_searchwidget_form($form_state,$args) {
+    
+    $cat = $args['build_info']['args'][0];
+      //determine bookingmode and call right function
+      $langbm = 'und';
+      $arguments =array($form_state,$args);
+      $langbm = field_language('node', $cat, 'field_agres_bookingmode');        
+      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {          
+         if (method_exists ('agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'],'_agr_searchwidget_form') ){   
+             
+                 $form = array();
+//                 drupal_set_message('<pre>categorie::::'. 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form'.print_r($cat->field_agres_bookingmode[$langbm],true).'</pre>');
+                 $form = call_user_func_array( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form',$arguments);
+                 return $form;                             
+         }else{
+             
+             drupal_set_message('function not existing');
+         }
+      }     
+      
+
+}
+
+//
+///**
+// * Implementation of hook validate():
+// */
+
+function agres_categories_searchwidget_form_validate($form, &$form_state) {
+//    
+        if (module_exists('uc_cart')) {
+        if (isset($_SESSION['agreservationuserrequest']['additinonalbooking']) && ($_SESSION['agreservationuserrequest']['additinonalbooking'] == 1)) {
+//            $items = uc_cart_get_contents(uc_cart_get_id());
+//         drupal_set_message('<pre>agres_categories_searchwidget_form_validate additinonalbooking IS set'.print_r($args['build_info']['args'][0]->nid,true).'</pre>');            
+            if (isset($_SESSION['availableunittypes'])) {
+                unset($_SESSION['availableunittypes']);
+            }
+            if (isset($_SESSION['agreservationuserrequest'])) {
+                unset($_SESSION['agreservationuserrequest']);
+            }
+        }else {
+//            drupal_set_message('<pre>agres_categories_searchwidget_form_validate additinonalbooking NOT set'.print_r($args['build_info']['args'][0]->nid,true).'</pre>');
+            unset($_SESSION['agreservationuserrequest']['additinonalbooking']);
+            $items = uc_cart_get_contents(uc_cart_get_id());
+            // Now delete the reservations. In case where not allowed to delete,
+            // follow the suggestion posted here:http://drupal.org/node/218104
+            foreach ($items as $productunit) {
+                if (isset($productunit->data['agreservations_resid'])) {
+                    if (intval($productunit->data['agreservations_resid']) > 0) {
+                        global $user;
+                        $original_user = $user;
+                        drupal_save_session(FALSE);
+                        $user = user_load(1);
+                        node_delete(intval($productunit->data['agreservations_resid']));
+                        // Restore original user
+                        $user = $original_user;
+                        drupal_save_session(TRUE);
+                    }
+                }
+            }
+            uc_cart_empty(uc_cart_get_id());
+            if (isset($_SESSION['availableunittypes'])) {
+                unset($_SESSION['availableunittypes']);
+            }
+            if (isset($_SESSION['agreservationuserrequest'])) {
+                unset($_SESSION['agreservationuserrequest']);
+            }            
+        }
+    }
+    $cat = $form_state['build_info']['args'][0];
+      //determine bookingmode and call right function
+      $langbm = 'und';
+      $arguments =array($form, &$form_state);
+      $langbm = field_language('node', $cat, 'field_agres_bookingmode');        
+      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {          
+         if (method_exists ('agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'],'_agr_searchwidget_form_validate') ){   
+             
+                 $form = array();
+//                 drupal_set_message('<pre>categorie::::'. 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form_validate'.print_r($cat->field_agres_bookingmode[$langbm],true).'</pre>');
+                 $form = call_user_func_array( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form_validate',$arguments);
+                 return $form;                             
+         }else{
+             drupal_set_message('function not existing');
+         }
+      }   
+
+}
+
+//
+
+/**
+ * Implements hook_block_info().
+ *
+ * This hook declares what blocks are provided by the module.
+ */
+function agres_categories_block_info() {
+    static $cats;
+    $blocks = array();
+    if (is_null($cats)) {
+        $cats = _agres_categories_get_categories(TRUE);
+    }
+
+    foreach ($cats as $category) {
+        $blocks[$category->nid] = array(
+            'info' => t(' category search form for:') . $category->title,
+        );
+    }
+    return $blocks;
+}
+
+function agres_categories_block_view($delta = '') {
+    static $cats=null;
+    if (is_null($cats)) {
+        $cats = _agres_categories_get_categories(TRUE);
+    }
+    $block = array();
+
+    ////////////////////////////
+//    $lang = 'und';
+//    $lang = field_language('node', $cats[$delta], 'field_agres_titleresform');
+    $subject = '';
+    $content = '';
+//        unset($_SESSION['agreservationuserrequest']);        
+//        $userrequest['catnid'] = $category->nid;
+//        $userrequest['resformtitel'] = $resformtitle;
+//        $userrequest['datstring'] = $datstr;
+//     if (isset($_SESSION['agreservationuserrequest']['catnid'])){
+//         $userrequest = $_SESSION['agreservationuserrequest'];
+//        $content = $userrequest['catnid'];
+//     } else {
+//     drupal_set_message('<pre>$delta$delta'.print_r($delta,true).'</pre>');
+//    $cats = _agres_categories_get_categories(TRUE);
+     $content = drupal_get_form('agres_categories_searchwidget_form_' . $delta, $cats[$delta]);
+           
+     if ((count($cats[$delta]->field_agres_titleresform) > 0)) {
+        $lang_default = language_default();
+        $langcode = $lang_default->language;         
+       $subject = $cats[$delta]->field_agres_titleresform[$lang][0]['safe_value'];  
+     }
+     
+        $block = array(
+            'subject' =>$subject, //_agres_categories_callfilter(1, $category->body, $cache_id = FALSE),
+            'content' => $content,
+        );
+    return $block;
+    ///////////////////////////////////////
+}
+
+////*when anonymous users clicks search on the searchform:*/
+//
+function agres_categories_searchwidget_form_submit($form, &$form_state) {
+//    drupal_set_message('<pre>agres_categories_searchwidget_form'.print_r($args['build_info']['args'][0],true).'</pre>');
+    $cat = $form_state['build_info']['args'][0];
+      //determine bookingmode and call right function
+      $langbm = 'und';
+      $arguments =array($form, &$form_state);
+      $langbm = field_language('node', $cat, 'field_agres_bookingmode');        
+      if (isset($cat->field_agres_bookingmode[$langbm][0]['value'])) {          
+         if (method_exists ('agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'],'_agr_searchwidget_form_submit') ){   
+             
+                 $form = array();
+//                 drupal_set_message('<pre>categorie::::'. 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form_submit'.print_r($cat->field_agres_bookingmode[$langbm],true).'</pre>');
+                 $form = call_user_func_array( 'agres_bm_'.$cat->field_agres_bookingmode[$langbm][0]['value'].'::_agr_searchwidget_form_submit',$arguments);
+                 return $form;                             
+         }else{
+             drupal_set_message('function not existing');
+         }
+      }  
+//     Tell the browser to close the modal.
+//    if (isset($form_state['ajax']) && $form_state['ajax']==1){
+//        $form_state['ajax_commands'][] = ctools_modal_command_dismiss();
+//        $form_state['ajax_commands'][] = ctools_ajax_command_redirect('node/1');
+//    }
+//     
+//    if (isset($form_state['build_info']['args'][0])) {
+//        $cat = $form_state['build_info']['args'][0];
+//        $lang = 'und';
+//        $lang = field_language('node', $cat, 'field_agres_showtime');
+//        $preselectedunit = 0;
+//        if (isset($_SESSION['agres_current_page_nid'])) {
+//            $currently_viewed_producttype = null;
+//            $currently_viewed_producttype = node_load($_SESSION['agres_current_page_nid']);
+//            if (_agres_categories_unittype_has_cat($_SESSION['agres_current_page_nid'], $cat->nid)) {
+//                $preselectedunit = $_SESSION['agres_current_page_nid'];
+//            }
+//        }
+//        if (isset($form_state['build_info']['args'][0])) {
+//            if (isset($form_state['values']['adults'])) {
+//                $adults = $form_state['values']['adults'];
+//            }
+//
+//            if (isset($form_state['values']['children'])) {
+//                $children = $form_state['values']['children'];
+//            }
+//
+//            if (isset($form_state['values']['units'])) {
+//                $requestedunits = $form_state['values']['units'];
+//            }
+//            if (isset($form_state['values']['checkin' . $cat->nid])) {
+//                $tmpDateCheckin = date_create($form_state['values']['checkin' . $cat->nid]);
+//            }
+//
+//            if (isset($form_state['values']['checkout' . $cat->nid])) {
+//                $tmpDateCheckout = date_create($form_state['values']['checkout' . $cat->nid]);
+//            }
+//
+////      $tmpDateCheckout->modify('+3 hour');
+//            $checkintime = date_format($tmpDateCheckin, 'Y-m-d H:i');
+//            $checkouttime = date_format($tmpDateCheckout, 'Y-m-d H:i');
+//            drupal_set_message('<pre>d***nocddddddddddhda__'.print_r($checkintime,true).'</pre>'); 
+////      drupal_set_message('<pre>agres_categories_searchwidget_form_submit_ '.print_r($checkintime,true).'</pre>');
+////    /* get reservable units: */
+//            $langbm = 'und';
+//            $langbm = field_language('node', $cat, 'field_agres_bookingmode');
+//
+//            if (intval($cat->field_agres_bookingmode[$langbm][0]['value']) < 3) {
+//               
+//                if (isset($form_state['build_info']['args'][0])) {
+//                    $categorynid = $form_state['build_info']['args'][0]->nid;
+//                    $resnodes = agreservations_get_reservable_items('agreservations_unit', $checkintime,$checkouttime, $categorynid);
+//                } else {
+//                }
+//                $availableunittypes = _agreservations_get_reservable_unittypes($resnodes, FALSE);
+//                 
+//                $_SESSION['availableunittypes'] = $availableunittypes;
+//
+//                $userrequest['checkintime'] = $checkintime;
+//                $userrequest['checkouttime'] = $checkouttime;
+//                if (isset($adults)) {
+//                    $userrequest['adults'] = $adults;
+//                }
+//                if (isset($children)) {
+//                    $userrequest['children'] = $children;
+//                }
+//
+//                if (isset($requestedunits)) {
+//                    $userrequest['requestedunits'] = $requestedunits;
+//                } else {
+//                    $userrequest['requestedunits'] = 1;
+//                    $requestedunits = 1;
+//                }
+//                $datstr = date_format($tmpDateCheckin, 'YmdHis') . date_format($tmpDateCheckout, 'YmdHis') . $requestedunits;
+//                $cat = $form_state['build_info']['args'][0];
+//                $form_state['rebuild'] = true;
+//                unset($form_state['values']);
+//
+//                $availableunittypenids = array_keys($availableunittypes);
+//               
+//                if (in_array($preselectedunit, $availableunittypenids)) {
+//                    $userrequest['preselectedunit'] = $preselectedunit;
+//                    $_SESSION['agreservationuserrequest'] = $userrequest;
+//                    $_SESSION['agreservationcategory'] = $cat->nid;
+//                    _agres_bookings_reserve_and_fillcart(null, null, $userrequest, $cat->nid, $preselectedunit, array(), 'cart', $form_state);
+//                } else {
+//
+//                   $agrsearchredirect =  agres_categories_search_result($userrequest, $cat, $datstr);
+//                    
+//                }
+//            } elseif (module_exists('agres_package') && $cat->field_agres_bookingmode[$langbm][0]['value'] == '3') {
+//                /**
+//                 * If bookingmode Package, dont check availability now, just
+//                 * present all unittypes and units attached to all packages which are attached
+//                 * to the current category: 
+//                 */
+//                $userrequest['checkintime'] = $checkintime;
+//                $userrequest['pickuppoint'] = $form_state['values']['pickuppoint'];
+//                $userrequest['dropoffpoint'] = $form_state['values']['dropoffpoint'];
+//                
+//                //for caching generate rather unique url...or better an url which fits:
+//                $datstr = date_format($tmpDateCheckin, 'YmdHis') . $requestedunits;
+//               $agrsearchredirect = agres_categories_search_result($userrequest, $cat, $datstr);
+//            } elseif(module_exists('agres_place') && $cat->field_agres_bookingmode[$langbm][0]['value'] == '4') {
+//                $userrequest['checkintime'] = $checkintime;
+//                $userrequest['checkouttime'] = $checkouttime;
+//                $userrequest['pickuppoint'] = $form_state['values']['pickuppoint'];
+//                $datstr = date_format($tmpDateCheckin, 'YmdHis') . $requestedunits;
+////                drupal_set_message('<pre>d****__'.print_r($userrequest,true).'</pre>');     
+//               $agrsearchredirect =  agres_categories_search_result($userrequest, $cat, $datstr);
+//            }
+//                if (isset($form_state['ajax']) && $form_state['ajax'] == 1) {
+//                $form_state['ajax_commands'][] = ctools_modal_command_dismiss();
+//                $form_state['ajax_commands'][] = ctools_ajax_command_redirect($agrsearchredirect);
+//            } else {
+////                 drupal_set_message('<pre>d*rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr**nochda__'.print_r($form_state['redirect'],true).'</pre>');
+//                drupal_goto($agrsearchredirect);
+//                $form_state['redirect'] = $agrsearchredirect;
+//            }
+//        } else {
+//            $content = '<div>' . t('Category not set') . '</div>';
+//            $content = $content . '<br><a href="' . base_path() . '">' . t('back') . '<a>';
+//            print theme('page', $content);
+//        }
+//    } else {
+//        drupal_set_message('Category not set!');
+//    }
+}
+function agres_categories_search_return_result($userrequest, $category, $datstr) {
+    if (is_numeric($category)) {
+        $category = node_load($category);
+    }
+    if (isset($category)) {
+        $categorynid = $category->nid;
+        $langcode = i18n_langcode();
+        $langcode_cat = 'und';
+        $langcode_cat = field_language('node', $category, 'field_agres_titleresform');
+        $resformtitle = '';
+        if (isset($category->field_agres_titleresform) && count($category->field_agres_titleresform) > 0) {
+            $resformtitle = $category->field_agres_titleresform[$langcode_cat][0]['safe_value'];
+        } else {
+            $resformtitle = $category->title;
+        }
+        if ($resformtitle == '') {
+            $resformtitle = $category->title;
+        }
+        unset($_SESSION['agreservationuserrequest']);        
+        $userrequest['catnid'] = $category->nid;
+        $userrequest['resformtitel'] = $resformtitle;
+        $userrequest['datstring'] = $datstr;    
+        $_SESSION['agreservationuserrequest'] = $userrequest;
+        $_SESSION['agreservationcategory'] = $categorynid;
+        $_SESSION['agreservationuserrequest']['vdest']='agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr;
+//        drupal_goto('agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr);
+        return 'agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr;
+    } else {
+        return 'agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr;
+//        drupal_goto("agrbookingstep1error/" . t('error'));
+    }
+}
+function agres_categories_search_result($userrequest, $category, $datstr) {
+//    drupal_set_message('<pre>agres_categories_search_resultagres_categories_search_result::::'.print_r($userrequest,true).'</pre>');
+    if (is_numeric($category)) {
+        $category = node_load($category);
+    }
+    if (isset($category)) {
+        $categorynid = $category->nid;
+        $langcode = i18n_langcode();
+        $langcode_cat = 'und';
+        $langcode_cat = field_language('node', $category, 'field_agres_titleresform');
+        $resformtitle = '';
+        if (isset($category->field_agres_titleresform) && count($category->field_agres_titleresform) > 0) {
+            $resformtitle = $category->field_agres_titleresform[$langcode_cat][0]['safe_value'];
+        } else {
+            $resformtitle = $category->title;
+        }
+        if ($resformtitle == '') {
+            $resformtitle = $category->title;
+        }
+        unset($_SESSION['agreservationuserrequest']);        
+        $userrequest['catnid'] = $category->nid;
+        $userrequest['resformtitel'] = $resformtitle;
+        $userrequest['datstring'] = $datstr;    
+        $_SESSION['agreservationuserrequest'] = $userrequest;
+        $_SESSION['agreservationcategory'] = $categorynid;
+        $_SESSION['agreservationuserrequest']['vdest']='agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr;
+//        drupal_goto('agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr);
+       
+        return 'agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr;
+        
+    } else {
+        return 'agrbookingstep1/' . $category->nid . '/' . $resformtitle . '/' . $datstr;
+//        drupal_goto("agrbookingstep1error/" . t('error'));
+    }
+}
+
+function agres_categories_forms($form_id, $args) {
+    $forms = array();
+    //Check if the form_id passed to drupal_get_form() contains the string 'mymodule_form'
+    if (strpos($form_id, 'agres_categories_searchwidget_form') !== FALSE) {
+        //Lets attach mymodule_form to $forms[$form_id].  This effectively allows you to use the same form builder function to build a form with any form_id of your choice.
+        $forms[$form_id] = array(
+            'callback' => 'agres_categories_searchwidget_form',
+        );
+    }
+    if (strpos($form_id, 'agres_categories_select_unittype_btnh_form') !== false) {
+        if (isset($args[0]['unittypenid'])) {
+            $select_unittypehourly_params = $args[0];
+
+            $forms['agres_categories_select_unittype_btnh_form_' . $select_unittypehourly_params['unittypenid']] = array('callback' => 'agres_categories_select_unittype_btnh_form',
+                'callback arguments' => $select_unittypehourly_params);
+        }
+    }
+    if (strpos($form_id, 'agres_categories_select_unittype_btn_form') !== false) {
+        if (isset($args[0]['unittypenid']) && isset($args[0]['packagenid'])) {
+            $select_unittype_package_button_params = $args[0];
+
+            $forms['agres_categories_select_unittype_btn_form_' . $select_unittype_package_button_params['unittypenid']] = array('callback' => 'agres_categories_select_unittype_btn_form',
+                'callback arguments' => $select_unittype_package_button_params);
+        }
+    }    
+    return $forms;
+}
+/**
+ * Form builder for agres_bookings_select_unit_btn_form().
+ *
+ * @see uc_product_forms()
+ * @see uc_catalog_buy_it_now_form_validate()
+ * @see uc_catalog_buy_it_now_form_submit()
+ * @ingroup forms
+ */
+function agres_categories_select_unittype_btn_form($form, &$form_state, $nid) {
+//  drupal_set_message('<pre>agres_bookings_select_unit_btn_form****__'.print_r($form_state,true).'</pre>');
+  $form['nid'] = array('#type' => 'hidden', '#value' => $nid);
+  $form['AGRactions'] = array('#type' => 'actions');
+  $form['AGRactions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Select Type'),
+    '#id' => 'edit-submit-' . $nid,
+    '#attributes' => array(
+      'class' => array('select-unittype'),
+    ),
+  );
+
+//  uc_form_alter($form, $form_state, __FUNCTION__);
+//  
+  return $form;
+}
+
+/**
+ * Redirects to the product page if attributes need to be selected.
+ *
+ * @see uc_catalog_buy_it_now_form()
+ * @see uc_catalog_buy_it_now_form_submit()
+ */
+function agres_categories_select_unittype_btn_form_validate($form, &$form_state) {
+  //nothing to validate here yet
+}
+
+/**
+ * Form submission handler for uc_catalog_buy_it_now_form().
+ *
+ * @see uc_catalog_buy_it_now_form()
+ * @see uc_catalog_buy_it_now_form_validate()
+ */
+function agres_categories_select_unittype_btn_form_submit($form, &$form_state) {    
+//     drupal_set_message('<pre>*agres_categories_unit_btn_form_submit_ '.print_r($form_state['build_info']['args'][0],true).'</pre>');
+    $selunittypenid = $form_state['build_info']['args'][0]['unittypenid'];
+    $_SESSION['agreservationuserrequest']['packagenid'] = $form_state['build_info']['args'][0]['packagenid'];
+    $_SESSION['agreservationuserrequest']['selectedunittypenid'] = $form_state['build_info']['args'][0]['unittypenid'];
+    $userrequest = $_SESSION['agreservationuserrequest'];
+    $tmpDateCheckin = date_create($userrequest['checkintime']);
+    $tmpDateCheckout = date_create($userrequest['checkintime']);       
+        $packagenode = node_load($userrequest['packagenid']);
+        $langh = 'und';
+        $langh = field_language('node', $packagenode, 'field_agr_pack_hours');
+        $hours = $packagenode->field_agr_pack_hours[$langh][0]['value'];
+        $tmpDateCheckout = $tmpDateCheckout->modify('+' . $hours+1 . ' hours');
+        $userrequest['checkouttime'] = $tmpDateCheckout->format('Y-m-d H:i:s');   
+        $_SESSION['agreservationuserrequest']['checkouttime'] = $userrequest['checkouttime'];
+////***************************************Reservation
+
+/////***************************************************    
+    $form_state['redirect'] = 'agrbookingdetails/'.$selunittypenid.'/'.t('additional-info');
+}
+/**
+ * Form builder for agres_bookings_select_unit_btn_form().
+ *
+ * @see agres_categories_forms()
+ * @see agres_categories_select_unittype_btnh_form_validate()
+ * @see agres_categories_select_unittype_btnh_form_submit()
+ * @ingroup forms
+ */
+function agres_categories_select_unittype_btnh_form($form, &$form_state, $nid) {
+//  drupal_set_message('<pre>agres_bookings_select_unit_btn_form****__'.print_r($form_state,true).'</pre>');
+  $form['nid'] = array('#type' => 'hidden', '#value' => $nid);
+  $form['AGRactions'] = array('#type' => 'actions');
+  $form['AGRactions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Select Unit'),
+    '#id' => 'edit-submit-' . $nid,
+    '#attributes' => array(
+      'class' => array('select-unit'),
+    ),
+  );
+
+//  uc_form_alter($form, $form_state, __FUNCTION__);
+//  
+  return $form;
+}
+
+/**
+ * Redirects to the product page if attributes need to be selected.
+ *
+ * @see uc_catalog_buy_it_now_form()
+ * @see uc_catalog_buy_it_now_form_submit()
+ */
+function agres_categories_select_unittype_btnh_form_validate($form, &$form_state) {
+  //nothing to validate here yet
+}
+
+
+function _agres_categories_get_priceordered_products_with_capacity($catnid,$capacity = 4){
+    //return ordered list of products(unit types of category
+   $unittypes = _agres_categories_get_unittypenodes_of_category($catnid);   
+   $unittypeprices = array();
+   foreach($unittypes as $key => $unittype){
+//       if ($unittype->)
+    $langcap = field_language('node', $unittype, 'field_agreservations_capacity');
+    $selcapacity = $unittype->field_agreservations_capacity[$langcap][0]['value'];
+    if($selcapacity == $capacity || $selcapacity == $capacity-1 || $selcapacity == $capacity+1){
+        $unittypeprices[$key] = $unittype->sell_price;
+    }
+//       drupal_set_message('<pre>_agres_categories_get_priceordered_products_with_capacity'.print_r($resunit, true) . '</pre>');
+       
+   }
+   asort($unittypeprices,SORT_NUMERIC);         
+   //now order them per price:
+   return $unittypeprices;
+}
+
+function _agres_categories_get_priceordered_products($catnid){
+    //return ordered list of products(unit types of category
+   $unittypes = _agres_categories_get_unittypenodes_of_category($catnid);   
+   $unittypeprices = array();
+   foreach($unittypes as $key => $unittype){
+       
+       $unittypeprices[$key] = $unittype->sell_price;
+   }
+   asort($unittypeprices,SORT_NUMERIC);         
+   //now order them per price:
+   return $unittypeprices;
+}
+/**
+ * function _find_next_lower_avbl_packages
+ *
+ */
+function _find_next_lower_avbl_packages($packs, $packagepricearray, $currentprice, $checkintime, $checkouttime, $pricesteps = 2) {
+    $stepcounter = 0;
+     $lastprice = 0;
+    
+    $rpackagepricearray = array_reverse($packagepricearray, true);
+//     drupal_set_message('<pre>$packagepricearray' . print_r($rpackagepricearray, true) . '</pre>');
+    foreach ($rpackagepricearray as $key => $a) {       
+        if ($a < $currentprice) {
+                if ($a < $lastprice) {
+                    $stepcounter ++;
+//                    drupal_set_message('<pre>*stepcounter:: ' . $stepcounter . '</pre>'); 
+                }            
+            if ($stepcounter <= $pricesteps) {
+                $unitsToBook = array();
+//                 drupal_set_message('<pre>_____________****ff**'.$key.'_______' . print_r($a, true) . '</pre>');
+                //***************************************************************************
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                $langcode = field_language('node', $packs[$key], 'field_agr_pack_units');
+
+                foreach ($reservable_units as $reskey => $resunit) {
+                    if (in_multi_assoc_array($resunit->nid, $packs[$key]->field_agr_pack_units[$langcode])) {
+                        $_SESSION['agreservationuserrequest']['packagenid'] = $packs[$key]->nid;
+                        $unitsToBook[] = $resunit;
+
+                        return $unitsToBook;
+//                    drupal_set_message('<pre>_find_next_higher_avbl_packages'.print_r($resunit, true) . '</pre>');
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+         $lastprice = $a;
+    }
+    return false;
+}
+
+
+function _find_same_level_avbl_packages($packs, $packagepricearray, $currentprice, $checkintime, $checkouttime) {
+//    drupal_set_message('<pre>_find_next_higher_avbl_packages'.print_r($packs, true) . '</pre>'); 
+//    reset($packagepricearray);
+    foreach ($packagepricearray as $key => $a) {
+//        drupal_set_message('<pre>*closest ' . $a . '--' . $currentprice . '</pre>'); 
+        if ($a == $currentprice) { 
+                $unitsToBook = array();
+//                 drupal_set_message('<pre>_____________******'.$key.'_______' . print_r($a, true) . '</pre>');
+                //***************************************************************************
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                $langcode = field_language('node', $packs[$key], 'field_agr_pack_units');
+                foreach ($reservable_units as $reskey => $resunit) {
+                    if (in_multi_assoc_array($resunit->nid, $packs[$key]->field_agr_pack_units[$langcode])) {
+                        $_SESSION['agreservationuserrequest']['packagenid'] = $packs[$key]->nid;
+                        $unitsToBook[] = $resunit;
+//                        drupal_set_message('<pre>_find_next_higher_avbl_packages**********' . print_r($unitsToBook, true) . '</pre>');
+                        return $unitsToBook;
+                    }
+                }
+
+        }else{
+//            break;
+        }
+    }
+    return false;
+}
+
+/**
+ * function _find__agres_package_get_packages_of_capacitynext_higher_avbl_packages
+ *
+ */
+function _find_next_higher_avbl_packages($packs, $packagepricearray, $currentprice, $checkintime, $checkouttime, $pricesteps = 2) {
+    $stepcounter = 0;
+    $lastprice = 0;
+//    drupal_set_message('<pre>$packagepricearray' . print_r($packagepricearray, true) . '</pre>');
+//    drupal_set_message('<pre>_find_next_higher_avbl_packages'.print_r($packs, true) . '</pre>');      
+    foreach ($packagepricearray as $key => $a) {        
+//        drupal_set_message('<pre>*closest ' . $a . '--' . $currentprice . '</pre>'); 
+        if ($a > $currentprice) {
+                if ($a > $lastprice){
+                    $stepcounter ++;
+//                    drupal_set_message('<pre>*stepcounter:: ' . $stepcounter . '</pre>'); 
+                }            
+            if ($stepcounter <= $pricesteps) {
+                
+                 $unitsToBook = array();
+//                 drupal_set_message('<pre>_____________******'.$key.'_______' . print_r($a, true) . '</pre>');
+                //***************************************************************************
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                $langcode = field_language('node', $packs[$key], 'field_agr_pack_units');
+                foreach ($reservable_units as $reskey => $resunit) {
+                    if (in_multi_assoc_array($resunit->nid, $packs[$key]->field_agr_pack_units[$langcode])) {
+                        $_SESSION['agreservationuserrequest']['packagenid'] = $packs[$key]->nid;
+                        $unitsToBook[] = $resunit;
+//                        drupal_set_message('<pre>_find_next_higher_avbl_packages**********' . print_r($unitsToBook, true) . '</pre>');
+                        return $unitsToBook;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        $lastprice = $a;
+    }
+    return false;
+}
+/**
+ * function find_nextavailablehigher_on_ascendingsorted_unittypes
+ *
+ */
+
+function _find_same_level_avbl_unittypes($unittypepricearray, $currentprice, $checkintime, $checkouttime, $catnid) {
+    $unitsToBook = array();
+//     drupal_set_message('<pre>_find_same_level_avbl_unittypes'.print_r($unittypepricearray, true) . '</pre>'); 
+    foreach ($unittypepricearray as $key => $a) { 
+//        drupal_set_message('<pre>*closest ' . $a . '--' . $currentprice . '</pre>'); 
+            if ($a == $currentprice) {
+                            
+               //***************************************************************************
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $checkintime, $checkouttime, $_SESSION['agreservationuserrequest']['catnid']);
+                $reservable_unittypes = _agreservations_get_reservable_unittypes($reservable_units, true);
+    
+                if (array_key_exists($key, $reservable_unittypes)) {
+                    $userrequestunit = array();
+                    $userrequestunit[]['selectunittype'] = $key;
+                    //Todo: add possibility for multiple selectedunittypenids
+                    if (isset($_SESSION['agreservationuserrequest']['selectedunittypenid'])) {
+                        $_SESSION['agreservationuserrequest']['selectedunittypenid'] = $key;
+                    }
+                    $unitsToBook = _agreservations_find_units_for_user_request($userrequestunit, $checkintime, $checkouttime, $_SESSION['agreservationuserrequest']['catnid']);
+//drupal_set_message('<pre>agres_categories_get_details_form_validate:::++fdd++----'. print_r($unitsToBook, true) . '</pre>');                    
+                    if (count($unitsToBook) > 0) {
+                        
+                        return $unitsToBook;
+                        
+                    }
+                }
+                //****************************************************************************
+           
+            }else{
+//                return false;
+            }
+
+    }
+    return false;
+}
+/**
+ * function find_nextavailablehigher_on_ascendingsorted_unittypes
+ *
+ */
+
+function _find_next_higher_avbl_unittypes($unittypepricearray, $currentprice, $checkintime, $checkouttime, $catnid, $pricesteps = 2) {
+    $stepcounter = 0;
+    $lastprice = 0;
+    $unitsToBook = array();
+    foreach ($unittypepricearray as $key => $a) { 
+        
+            if ($a > $currentprice) {
+                if ($a > $lastprice){
+                    $stepcounter ++;
+                }                  
+               if ($stepcounter <= $pricesteps) {               
+                //***************************************************************************
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                $reservable_unittypes = _agreservations_get_reservable_unittypes($reservable_units, true);
+////    drupal_set_message('<pre>agres_categories_get_details_form_validate:::++fdd++___' .$selectedunittypenid.'--'.$userrequest['catnid'].'----'. print_r($reservable_units, true) . '</pre>');
+                if (array_key_exists($key, $reservable_unittypes)) {
+                    $userrequestunit = array();
+                    $userrequestunit[]['selectunittype'] = $key;
+                    //Todo: add possibility for multiple selectedunittypenids
+                    if (isset($_SESSION['agreservationuserrequest']['selectedunittypenid'])) {
+                        $_SESSION['agreservationuserrequest']['selectedunittypenid'] = $key;
+                    }
+                    $unitsToBook = _agreservations_find_units_for_user_request($userrequestunit, $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                    if (count($unitsToBook) > 0) {
+                        return $unitsToBook;
+                    }
+                }
+                //****************************************************************************
+        } else {
+            break;
+        }                
+            }
+     $lastprice = $a;
+    }
+    return false;
+}
+
+function _find_next_lower_avbl_unittypes($unittypepricearray, $currentprice, $checkintime, $checkouttime, $catnid, $pricesteps = 2) {
+    $stepcounter = 0;
+    $lastprice = 0;
+    $runittypepricearray = array_reverse($unittypepricearray, true);
+    foreach ($runittypepricearray as $key => $a) {       
+        if ($a < $currentprice) {
+                if ($a < $lastprice) {
+                    $stepcounter ++;
+                }            
+            if ($stepcounter <= $pricesteps) {
+                $unitsToBook = array();
+                //***************************************************************************
+                $reservable_units = agreservations_get_reservable_items('agreservations_unit', $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                $reservable_unittypes = _agreservations_get_reservable_unittypes($reservable_units, true);
+                if (array_key_exists($key, $reservable_unittypes)) {
+                    $userrequestunit = array();
+                    $userrequestunit[]['selectunittype'] = $key;
+                    //Todo: add possibility for multiple selectedunittypenids
+                    if (isset($_SESSION['agreservationuserrequest']['selectedunittypenid'])) {
+                        $_SESSION['agreservationuserrequest']['selectedunittypenid'] = $key;
+                    }
+                    $unitsToBook = _agreservations_find_units_for_user_request($userrequestunit, $_SESSION['agreservationuserrequest']['checkintime'], $_SESSION['agreservationuserrequest']['checkouttime'], $_SESSION['agreservationuserrequest']['catnid']);
+                    if (count($unitsToBook) > 0) {
+                        return $unitsToBook;
+                    }
+                }
+                //****************************************************************************
+            } else {
+                break;
+            }
+        }
+         $lastprice = $a;
+    }
+    return false;
+}
+
+function closest_higher_on_ascendingsorted($array, $number,$checkintime,$checkouttime,$catnid){
+
+//    sort($array);
+    foreach ($array as $key=>$a) {
+//        drupal_set_message('<pre>*closest '.$a.'--'.$number.'</pre>');
+        if ($a > $number){
+            $userrequestunit = array();          
+            $userrequestunit[]['selectunittype'] = $keyclosesdhigher;
+            $unitsToBook = _agreservations_find_units_for_user_request($userrequestunit, $userrequest['checkintime'], $userrequest['checkouttime'], $userrequest['catnid']);            
+            return $key;
+        }
+    }
+//    reset($array);
+    return false;
+//    return key($array); // or return NULL;
+}
+
+function closest_smaller_on_ascendingsorted($array, $number){
+   $rarray = array_reverse($array,true); 
+//    drupal_set_message('<pre>*agres_categories_unit_btn_form_submit_ '.$elem.'---'.print_r($rarray,true).'</pre>');
+    foreach ($rarray as $key=>$a) {
+//        drupal_set_message('<pre>*closest '.$a.'--'.$number.'</pre>');
+        if ($a < $number){
+            return $key;
+        }
+    }
+//    reset($rarray);
+    
+    return false; // or return NULL;
+}
+
+function agres_categories_select_unittype_btnh_form_submit($form, &$form_state) {
+    $selunitnid = $form_state['build_info']['args'][0]['unittypenid'];
+    $userrequest = $_SESSION['agreservationuserrequest'];
+    $_SESSION['agreservationuserrequest']['selectedunittypenid'] = $form_state['build_info']['args'][0]['unittypenid'];
+//***************************************Reservation
+    
+///***************************************************    
+//    $form_state['redirect'] = 'agrbookingdetails/' . $selunitnid . '/' . t('Additional Info');
+    drupal_goto('agrbookingdetails/' . $selunitnid . '/' . t('additional-info'));
+}
+
+//
+/**
+ * Implementation of hook_form_alter().
+ *
+ */
+function agres_categories_form_alter(&$form, $form_state, $form_id) {
+    
+}
+
+//
+/* _agres_categories_check_servicehours: returns BOOLEAN.
+ *
+ * @author     Andreas Gill
+ * @param      $timetocheck time to check as datetimeobjects.
+ * @param      $cat -the category with the servicehours defined.
+ * @return     TRUE if in or FALSE if not within servicehours of category
+ */
+function _agres_categories_check_servicehours($timetocheck, $cat) {
+    $langcode = i18n_langcode();
+    if (!isset($cat->field_agres_servicehours[$langcode])) {
+        $language_default = language_default('language');
+        $langcode = $language_default;
+        if (!isset($cat->field_agres_servicehours[$langcode])) {
+            $langcode = 'und';
+        }
+    }
+    $langcode = field_language('node', $cat, 'field_agres_servicehours');
+    $datform = 'Y-m-d H:i';
+    $strtimetocheck = $timetocheck->format($datform);
+    $checkwday = date('N', strtotime($strtimetocheck)); //strtotime($date));
+
+    $checktime = date('H:i', strtotime($strtimetocheck));
+    $checktimeinrange = FALSE;
+    //check date:
+
+    foreach ($cat->field_agres_servicehours[$langcode] as $wday => $shours) {
+        if ($wday == ($checkwday - 1)) {
+            $hoursofday = explode(",", $shours['value']);
+            foreach ($hoursofday as $timerange) {
+                if ($timerange == 'x') {
+                    return FALSE;
+                } else {
+                    $startend = explode("-", $timerange);
+                    $checktimeinrange = _is_time_in_range($strtimetocheck, $startend[0], $startend[1]);
+                    if ($checktimeinrange) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    return $checktimeinrange;
+}
+
+function agres_categories_node_validate($node, $form) {
+    if ($node->type == 'agres_category') {
+        $langcode = i18n_langcode();
+        if (!isset($node->field_agres_servicehours[$langcode])) {
+
+            $langcode = language_default('language');
+            if (!isset($node->field_agres_servicehours[$langcode])) {
+                $langcode = 'und';
+            }
+        }
+        $langcode = field_language('node', $node, 'field_agres_servicehours');
+//     drupal_set_message('<pre>agres_categories_node_validate'.print_r($node,true).'</pre>');
+        foreach ($node->field_agres_servicehours[$langcode] as $daynum => $servicetimes) {
+            $times = array();
+            $times = explode(',', $servicetimes['value']);
+            if (count($times) > 0) {
+                foreach ($times as $tkey => $time) {
+                    if (!preg_match("/^[0-9]{2}:[0-9]{2}-[0-9]{2}:[0-9]{2}$/", $time)) {
+                        if ($time !== 'x') {
+                            form_set_error('field_agres_servicehours', t('One of the servicehour entries does not match pattern hh:mm-hh:mm'));
+                        }
+                    } else {
+                        $fromtotimes = array();
+                        $fromtotimes = explode('-', $time);
+                        if (count($fromtotimes) > 0) {
+                            foreach ($fromtotimes as $fromto_key => $fromtotime) {
+                                $hoursminutes = array();
+                                $hoursminutes = explode(':', $fromtotime);
+                                if (count($hoursminutes) == 2) {
+                                    if ($hoursminutes[0] > 23) {
+                                        form_set_error('field_agres_servicehours', t('One of the sericehourentries has a problem: hours value of more than 23'));
+                                    } elseif ($hoursminutes[0] < 0) {
+                                        form_set_error('field_agres_servicehours', t('One of the sericehourentries has a problem: negative value is not allowed'));
+                                    }
+                                    if ($hoursminutes[1] > 59) {
+                                        form_set_error('field_agres_servicehours', t('One of the sericehourentries has a problem: minutes value of more than 59'));
+                                    } elseif ($hoursminutes[1] < 0) {
+                                        form_set_error('field_agres_servicehours', t('One of the sericehourentries has a problem: negative value is not allowed'));
+                                    }
+                                }
+                            }
+                            if (strtotime($fromtotimes[0]) > strtotime($fromtotimes[1])) {
+                                form_set_error('field_agres_servicehours', t('One of the servicehour entries has a bigger from time than To time.'));
+                            }
+                        }
+                    }
+                }
+            } elseif (count($times) == 0) {
+                
+            } else {
+                form_set_error('field-agres-servicehours', t('no valid time format!'));
+            }
+        }
+        if (!module_exists('agres_bookings')) {
+            $langus = 'und';
+            $langus = field_language('node', $node, 'field_agres_unitselectionmethod');
+            if ($node->field_agres_unitselectionmethod[$langus][0]['value'] == 2) {
+                form_set_error('field_agres_unitselectionmethod', t('you can not select this selectionmode without agres_bookings and ubercart enabled.'));
+            }
+        }
+    }
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function agres_categories_node_view($node, $view_mode, $langcode) {
+
+    if ($node->type == 'agreservation') {
+        $lang = 'und';
+        $lang = field_language('node', $node, 'field_agres_rdate');
+        $tmpdatewarg = new DateTime($node->field_agres_rdate[$lang][0]['value']);
+//        date_modify($tmpdatewarg, '+1 week'); //+1week due to missbehavior of date modules,when fixed:remove this line.
+        ////
+        ////
+
+        $weekarg = date_format($tmpdatewarg, "Y-\WW");
+        $node->content['bookingcalendarlink'] = array(
+            '#prefix' => '<div>',
+            '#markup' => l('Booking Calendar', 'agres_view/week/' . $weekarg),
+            '#suffix' => '</div>',
+            '#weight' => -1,
+        );
+    }
+    if ($node->type == 'agres_category') {
+        $langcode = i18n_langcode();
+        //get category of this unit type:
+        $output1 = '';
+        if (user_access('access agres_bookings')) {
+            if (module_exists('agres_availability')) {
+                $agres_availabilitycal = null;
+                $outputavail = '';
+                $agres_availabilitycal = views_get_view('agres_availability');
+                $outputavail = $agres_availabilitycal->preview('block_1', array('agrcategory_nid' => $node->nid));
+                $node->content['agrunittypeavailability'] = array(
+                    '#prefix' => '<div margin-top:0px;float:left;">',
+                    '#markup' => $outputavail,
+                    '#suffix' => '</div>',
+                    '#weight' => 33,
+                );
+            }
+            $agres_categories_availsettings_form = drupal_get_form('agres_categories_availsettings_form', $node->nid);
+            $output1 .= drupal_render($agres_categories_availsettings_form);
+            $node->content['agrcatavailsetform'] = array(
+                '#prefix' => '<div style="display:inline;margin-top:0px;float:left;">',
+                '#title' => 'Set availability',
+                '#markup' => $output1,
+                '#suffix' => '</div>',
+                '#weight' => 34,
+            );
+        }
+    }
+}
+
+function agres_categories_availsettings_form($form_state, $args) {
+    $catnid = $args['build_info']['args'][0];
+//  $unittypenid = $args['build_info']['args'][1];
+//  drupal_set_message('<pre>ffff'.print_r($args,true).'</pre>');
+    $cat = node_load($catnid);
+
+    $datform_default = date_default_format('date_popup');
+    $datform = str_replace(':s', '', $datform_default);
+//  $tmpdate = date($datform);
+    $form = array();
+
+    $form['availsettings'] = array(
+        '#prefix' => '<div style="width:auto;clear:both;display:inline-block;vertical-align:top;">',
+        '#type' => 'fieldset',
+        '#tree' => TRUE,
+        '#suffix' => '</div>',
+        '#title' => t('Set availability for whole category'),
+        '#description' => 'reservations with order ids have priority and won´t get touched using this tool.',
+    );
+    $form['availsettings']['checkin'] = array(
+        '#prefix' => '<div style="width:auto;display:inline-block;vertical-align:top;">',
+        '#type' => 'date_popup',
+        '#tree' => TRUE,
+        '#title' => t('From'),
+        '#required' => TRUE,
+        '#date_label_position' => 'within',
+        '#size' => 10,
+        '#default_value' => date($datform),
+        '#description' => t(''),
+        '#date_type' => 'datetime',
+        '#date_timezone' => date_default_timezone(), //Y-m-d H:i
+        '#date_format' => $datform,
+        '#date_year_range' => '-0:+1',
+        '#suffix' => '</div>',
+    );
+    $form['availsettings']['checkout'] = array(
+        '#prefix' => '<div style="width:auto;display:inline-block;vertical-align:top;">',
+        '#type' => 'date_popup',
+        '#tree' => TRUE,
+        '#title' => t('To'),
+        //      '#default_value' =>
+        '#required' => TRUE,
+        '#date_label_position' => 'within',
+        '#size' => 10,
+        '#default_value' => date($datform),
+        '#date_type' => 'datetime',
+        '#date_timezone' => date_default_timezone(),
+        '#date_format' => $datform,
+        '#date_year_range' => '-0:+1',
+        '#suffix' => '</div>',
+    );
+
+    $form['availsettings']['datform'] = array('#type' => 'value', '#value' => $datform);
+    $form['availsettings']['btn']['submit'] = array(
+        '#prefix' => '<div style="clear:both; position:relative;top:0px;margin-top:-40px;width:auto;float:right;vertical-align:top;">',
+        '#weight' => 900,
+        '#tree' => TRUE,
+        '#type' => 'submit',
+        '#title' => 'block',
+        '#value' => 'block',
+        '#submit' => array('agres_categories_availsettings_form_submit1'),
+        '#validate' => array('agres_categories_availsettings_form_validate1'),
+        '#suffix' => '</div>',
+    );
+    $form['availsettings']['btn']['submit2'] = array(
+        '#prefix' => '<div style="clear:both; position:relative;top:0px;margin-top:-5px;width:auto;float:right;vertical-align:bottom;">',
+        '#tree' => TRUE,
+        '#weight' => 999,
+        '#type' => 'submit',
+        '#title' => 'unblock',
+        '#value' => 'unblock',
+        '#submit' => array('agres_categories_availsettings_form_submit2'),
+        '#validate' => array('agres_categories_availsettings_form_validate2'),
+        '#suffix' => '</div>',
+    );
+
+    return $form;
+}
+
+function agres_categories_availsettings_form_submit2($form, $form_state) {
+//  drupal_set_message('<pre>blockblockblock' . print_r($form_state['values'], TRUE) . '</pre>');
+    if ($form_state['values']['op'] == 'unblock') {
+//1. Which Resources to unblock?...first all:
+        if (isset($form_state['build_info']['args'][0])) {
+            $units_to_unblock = array();
+            $categorynid = $form_state['build_info']['args'][0];
+            $conflictnids = array();
+            $dateTimezone1 = new DateTimeZone(date_default_timezone());
+
+            $entblock_begindateobj = new DateTime($form_state['values']['availsettings']['checkin'], $dateTimezone1);
+            $offset = $entblock_begindateobj->getOffset();
+            $offset = $offset * -1;
+            $entblock_begindateobj->modify($offset . 'seconds');
+            $entblock_org_begindateobj = date_create($form_state['values']['availsettings']['checkin']);
+
+            $entblock_enddateobj = new DateTime($form_state['values']['availsettings']['checkout'], $dateTimezone1);
+            $offset = $entblock_enddateobj->getOffset();
+            $offset = $offset * -1;
+            $entblock_enddateobj->modify($offset . 'seconds');
+            $entblock_org_enddateobj = date_create($form_state['values']['availsettings']['checkout']);
+
+            $entblockbegin = $entblock_org_begindateobj->format('Y-m-d H:i');
+            $entblockende = $entblock_org_enddateobj->format('Y-m-d H:i');
+            $entblockbeginm = $entblock_begindateobj->format('Y-m-d H:i');
+            $entblockendem = $entblock_enddateobj->format('Y-m-d H:i');
+            $conflictnids = _agres_rconflict_get_overlaps(date_create($form_state['values']['availsettings']['checkin']), date_create($form_state['values']['availsettings']['checkout']));
+            foreach ($conflictnids as $kconflict => $conflictnid) {
+                $conflictres = node_load($conflictnid);
+//2. u. 3.: For each blockreservation:  
+                $lang = 'und';
+                $lang = field_language('node', $conflictres, 'field_agres_status');
+//           drupal_set_message('<pre>resssss' . print_r($conflictres, TRUE) . '</pre>');
+                if (isset($conflictres->field_agres_status[$lang]) && $conflictres->field_agres_status[$lang][0]['value'] == AGRES_STATUS_AVAILABILITY_BLOCK) {
+//4.so this is a blocking reservations which is in the way of the unblocking time range, now act accordingly:
+//             if ($entblockbegin <)    
+                    $lang = 'und';
+                    $lang = field_language('node', $conflictres, 'field_agres_rdate');
+                    $tmpcheck_anfang = new DateTime($conflictres->field_agres_rdate[$lang][0]['value'], $dateTimezone1);
+                    $offset = $tmpcheck_anfang->getOffset();
+                    $offset = $offset * 1;
+                    $tmpcheck_anfang->modify($offset . 'seconds');
+                    $tmpcheck_anfang_str = $tmpcheck_anfang->format('Y-m-d H:i');
+                    $tmpcheck_ende = new DateTime($conflictres->field_agres_rdate[$lang][0]['value2'], $dateTimezone1);
+                    $offset = $tmpcheck_ende->getOffset();
+                    $offset = $offset * 1;
+                    $tmpcheck_ende->modify($offset . 'seconds');
+                    $tmpcheck_ende_str = $tmpcheck_ende->format('Y-m-d H:i');
+
+                    if (($entblockbegin < $tmpcheck_anfang_str) && ($entblockende > $tmpcheck_ende_str)) {
+                        node_delete($conflictnid);
+                    }
+                    if (($entblockbegin > $tmpcheck_anfang_str) && ($entblockende > $tmpcheck_ende_str)) {
+                        _agreservations_update_Reservation($conflictnid, null, $tmpcheck_anfang_str, $entblockbegin);
+                    }
+                    if (($entblockbegin > $tmpcheck_anfang_str) && ($entblockende < $tmpcheck_ende_str)) {
+                        _agreservations_update_Reservation($conflictnid, null, $tmpcheck_anfang_str, $entblockbegin);
+                        $tmpunits = array();
+                        $tmpunits = _agreservations_get_unitn_for_reservation_node($conflictnid);
+                        $resnid = _agreservations_create_blockReservation($tmpunits, $entblockende, $tmpcheck_ende_str, NULL, 0, AGRES_STATUS_AVAILABILITY_BLOCK, t('block reservation'));
+                    }
+                    if (($entblockbegin < $tmpcheck_anfang_str) && ($entblockende < $tmpcheck_ende_str) && ($entblockende > $tmpcheck_anfang_str)) {
+                        _agreservations_update_Reservation($conflictnid, null, $entblockende, $tmpcheck_ende_str);
+                    }
+//                drupal_set_message('<pre>unlbock conflicts ' . print_r($entblockende.'<--->'.$tmpcheckindtstr, TRUE) . '</pre>');
+                }
+            }
+        }
+    } elseif ($form_state['values']['op'] == 'free') {
+        
+    }
+}
+
+////*when anonymous users clicks search on the searchform:*/
+//
+function agres_categories_availsettings_form_submit1($form, $form_state) {
+    if (isset($form_state['build_info']['args'][0])) {
+        $catid = $form_state['build_info']['args'][0];
+        if ($form_state['values']['op'] == 'block') {
+            $resnodes = _agres_categories_get_unitnodes_of_category(null, $catid);
+            $resnid = _agreservations_create_blockReservation($resnodes, $form_state['values']['availsettings']['checkin'], $form_state['values']['availsettings']['checkout'], NULL, 0, AGRES_STATUS_AVAILABILITY_BLOCK, t('block reservation'));
+        } elseif ($form_state['values']['op'] == 'free') {
+            
+        }
+    }
+}
+
+function agres_categories_availsettings_form_validate1($form, &$form_state) {
+    if (isset($form_state['build_info']['args'][0])) {
+        $catnid = $form_state['build_info']['args'][0];
+        $cat = node_load($catnid);
+
+        if (isset($form_state['values']['availsettings']['datform'])) {
+            $datform = $form_state['values']['availsettings']['datform'];
+        } else {
+            $datform = 'Y-m-d H:i';
+        }
+
+        if (!isset($form_state['values']['availsettings']['units'])) {
+            $form_state['values']['availsettings']['units'] = 1;
+        }
+        $requestedunits = $form_state['values']['availsettings']['units'];
+//    drupal_set_message('<pre>hierhierhier'.print_r($requestedunits,true).'</pre>');
+        if (!isset($form_state['values']['availsettings']['checkin']) || ($form_state['values']['availsettings']['checkin'] == '')) {
+            form_set_error('unitinfo', t('Checkout-time has to be entered'));
+            return;
+        } else {
+            if (!is_array($form_state['values']['availsettings']['checkin'])) {
+                $tmpDateCheckin = date_create($form_state['values']['availsettings']['checkin']);
+            } else {
+                $tmpDateCheckin = date_create($form_state['values']['availsettings']['checkin']['date'] . ' ' . $form_state['values']['availsettings']['checkin']['time']);
+            }
+        }
+        $lang = 'und';
+        $lang = field_language('node', $cat, 'field_agres_shownumberunits');
+        $langl = 'und';
+        $langl = field_language('node', $cat, 'field_agres_datelabel2');
+        $langd = 'und';
+        $langd = field_language('node', $cat, 'field_agres_numberunits');
+        if (($cat->field_agres_shownumberunits[$lang][0]['value'] !== 1) && (isset($cat->field_agres_numberunits[$langd][0]['value']))) {
+            $form_state['values']['availsettings']['units'] = $cat->field_agres_numberunits[$langd][0]['value'];
+        }
+        if (!isset($cat->field_agres_datelabel2[$langl][0]['value'])) {
+            if (!isset($form_state['values']['availsettings']['checkout'])) {
+                form_set_error('availsettings', t('Checkout-time has to be entered'));
+            }
+            $tmpDateCheckout = date_create($form_state['values']['availsettings']['checkin']);
+            if (!isset($form_state['values']['availsettings']['checkin']['time'])) {
+                $tmpDateCheckout = date_create($form_state['values']['availsettings']['checkin']);
+            } else {
+                $tmpDateCheckout = date_create($form_state['values']['availsettings']['checkin']['date'] . ' ' . $form_state['values']['availsettings']['checkin']['time']);
+            }
+        } else {
+            if (!isset($form_state['values']['availsettings']['checkout']) || ($form_state['values']['availsettings']['checkout'] == '')) {
+                form_set_error('availsettings', t('Checkout-time has to be entered'));
+                return;
+            }
+            if (!is_array($form_state['values']['availsettings']['checkout'])) {
+                $tmpDateCheckout = date_create($form_state['values']['availsettings']['checkout']);
+            } else {
+
+                $tmpDateCheckout = date_create($form_state['values']['availsettings']['checkout']['date'] . ' ' . $form_state['values']['availsettings']['checkout']['time']);
+            }
+        }
+
+        if ($tmpDateCheckin >= $tmpDateCheckout) {
+            form_set_error('availsettings', t('Checkin has to be before Checkout '));
+        }
+        /* get reservable units: */
+
+        $resnodes = agreservations_get_reservable_items('agreservations_unit', date_format($tmpDateCheckin, 'Y-m-d H:i'), date_format($tmpDateCheckout, 'Y-m-d H:i'), $cat);
+
+        $foundunits = count($resnodes);
+        if ($requestedunits > 0) {
+            if ($requestedunits > $foundunits) {
+                //look which are the conflicting reservations:
+                $conflictresnids = _agres_rconflict_get_overlaps($tmpDateCheckin, $tmpDateCheckout);
+                $availblocks = 0;
+                $nonavailblocks = 0;
+                foreach ($conflictresnids as $keyconflict => $conflictnid) {
+                    $conflictres = node_load($conflictnid);
+//          drupal_set_message('<pre>conflicts:****'.print_r($conflictres,TRUE).'</pre>');
+                    $lang = 'und';
+                    $lang = field_language('node', $conflictres, 'field_agres_status');
+                    if (isset($conflictres->field_agres_status[$lang]) && $conflictres->field_agres_status[$lang][0]['value'] == AGRES_STATUS_AVAILABILITY_BLOCK) {
+                        $availblocks+=1;
+//             break;
+                    } else {
+                        $nonavailblocks +=1;
+                    }
+                }
+                if ($availblocks == 0) {
+                    form_set_error('unitinfo', t('Conflicting Reservations don´t contain changeable availability block.'));
+                }
+            }
+        } elseif ($requestedunits == 0) {
+            $lang = 'und';
+            $lang = field_language('node', $cat, 'field_agres_shownumberunits');
+            $langs = 'und';
+            $langs = field_language('node', $cat, 'field_agres_unitselectionmethod');
+            if (!($cat->field_agres_shownumberunits[$lang][0]['value'] == 2 && $cat->field_agres_unitselectionmethod[$langs][0]['value'] == 2)) {
+                form_set_error('availsettings', t('Number of units has to be > 0'));
+            }
+        }
+    } else {
+        form_set_error('availsettings', t('agres_category not set! Please try again'));
+    }
+}
+
+///**
+// * Implementation of hook validate():
+// */
+function agres_categories_availsettings_form_validate2($form, $form_state) {
+    if ($form_state['values']['availsettings']['checkin'] >= $form_state['values']['availsettings']['checkout']) {
+        form_set_error('unitinfo', t('Start Date has to be smaller than End Date.'));
+    }
+}
+function _agres_categories_create_options_servicehours_greaterthanx($daynumber, $cat,$xstr) {
+    $lang = 'und';
+// drupal_set_message('<pre>_agres_categories_create_options_servicehours:'.$x.'---'.print_r($x,true).'</pre>');  
+    if (is_numeric($cat)) {
+        $cat = node_load($cat);
+    }
+    $lang = field_language('node', $cat, 'field_agres_servicehours');
+    $datform = 'Y-m-d H:i';
+    $shours = $cat->field_agres_servicehours[$lang][$daynumber]['value'];
+    $stimearray = array();
+   
+    if ($shours <> 'x') {
+        $hoursofday = explode(",", $shours);
+        $stimearray = array();
+//  $i = 0;
+         
+        foreach ($hoursofday as $x => $startend) {
+            $startendarray = explode("-", $startend);
+            $start = $startendarray[0];
+            $end = $startendarray[1];
+            $prepend = array('00', '01', '02', '03', '04', '05', '06', '07', '08', '09',);
+            $prependmin = array('00',);
+            $hours = array_merge($prepend, range(10, 23));
+             
+            $minutes = array_merge($prependmin, range(15, 59, 15));
+            foreach ($hours as $h => $hour) {//               
+                foreach ($minutes as $minute) {
+                    $nhour = intval($hour);
+                   
+                    $kstime = $hour . ':' . $minute;   
+                    if($kstime >= $xstr){
+//                        drupal_set_message('<pre>_agres_categories_create_options_servicehours:'.$xstr.'---'.print_r($kstime,true).'</pre>'); 
+                    
+                     
+                    if (intval($hour)> 12){
+                        if(($nhour-12)<10){
+                             $stime = '0'.($nhour-12).':' . $minute .' p.m.'; 
+                        }else{
+                             $stime = ($nhour-12).':' . $minute .' p.m.'; 
+                        }
+                                                  
+                    }else{
+                      $stime = $hour . ':' . $minute .' a.m'; 
+                    }                 
+//                    if (($stime <= $end) && ($stime >= $start)) {
+                        $stimearray[$kstime] = $stime;
+                      }  
+//                    }
+//                    
+//        $i++;
+                }
+            }
+        }
+    }
+//    drupal_set_message('<pre>categorie::::' . print_r($stimearray, true) . '</pre>');
+    return $stimearray;
+}
+function _agres_categories_create_options_servicehours($daynumber, $cat) {
+    $lang = 'und';
+
+    if (is_numeric($cat)) {
+        $cat = node_load($cat);
+    }
+    $lang = field_language('node', $cat, 'field_agres_servicehours');
+    $datform = 'Y-m-d H:i';
+    $shours = $cat->field_agres_servicehours[$lang][$daynumber]['value'];
+    $stimearray = array();
+   
+    if ($shours <> 'x') {
+        $hoursofday = explode(",", $shours);
+        $stimearray = array();
+//  $i = 0;
+//         drupal_set_message('<pre>_agres_categories_create_options_servicehours:'.print_r($shours,true).'</pre>');  
+        foreach ($hoursofday as $x => $startend) {
+            $startendarray = explode("-", $startend);
+            $start = $startendarray[0];
+            $end = $startendarray[1];
+            $prepend = array('00', '01', '02', '03', '04', '05', '06', '07', '08', '09',);
+            $prependmin = array('00',);
+            $hours = array_merge($prepend, range(10, 23));
+             
+            $minutes = array_merge($prependmin, range(15, 59, 15));
+            foreach ($hours as $h => $hour) {//               
+                foreach ($minutes as $minute) {
+                    $nhour = intval($hour);
+                   
+                    $kstime = $hour . ':' . $minute;                    
+                    if (intval($hour)> 12){
+                        if(($nhour-12)<10){
+                             $stime = '0'.($nhour-12).':' . $minute .' p.m.'; 
+                        }else{
+                             $stime = ($nhour-12).':' . $minute .' p.m.'; 
+                        }
+                                                  
+                    }else{
+                      $stime = $hour . ':' . $minute .' a.m'; 
+                    }                 
+//                    if (($stime <= $end) && ($stime >= $start)) {
+                        $stimearray[$kstime] = $stime;
+//                    }
+//        $i++;
+                }
+            }
+        }
+    }
+//    drupal_set_message('<pre>categorie::::' . print_r($stimearray, true) . '</pre>');
+    return $stimearray;
+}
+
+/* * this is a jsoncallback to retrieve the available openhours after
+ * date is selected:
+ */
+
+function agres_categories_page_callback_time($datestr, $cat) {
+    $tmpdate = new DateTime($datestr);
+    //$datform = 'Y-m-d H:i';
+    $datform = 'N';
+    $daynumber = $tmpdate->format($datform);
+    $daynumber -=1;
+    $stimearray = _agres_categories_create_options_servicehours($daynumber, $cat);
+    return drupal_json_output($stimearray);
+}

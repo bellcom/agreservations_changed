@@ -1,0 +1,18 @@
+<?php
+/**
+ * @file
+ * agres_categories.module
+ * Contains functions to manage categories: Users can create categories like:
+ * Rooms, Houses, cars, Restauranttable and choose properties like ,hourly bookable, daily bookable,...
+ * and assign these categories to a Unit type.
+ */
+//require_once('./' . drupal_get_path('module', 'agreservations') . '/includes/agres_funcs.inc');
+
+
+
+function agres_bm_init() {
+require_once(drupal_get_path('module', 'agres_bm') . '/includes/agres_bm_1.inc');
+require_once(drupal_get_path('module', 'agres_bm') . '/includes/agres_bm_2.inc');
+require_once(drupal_get_path('module', 'agres_bm') . '/includes/agres_bm_3.inc');
+require_once(drupal_get_path('module', 'agres_bm') . '/includes/agres_bm_4.inc');
+}

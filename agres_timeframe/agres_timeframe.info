@@ -1,0 +1,20 @@
+name = Agreservations Timeframe
+description = Implements the Timeframe content type.
+package = Agreservations - Custom
+core = 7.x
+
+files[] = agres_timeframe.admin.inc
+files[] = agres_timeframe.api.inc
+files[] = agres_timeframe.cck.inc
+files[] = agres_timeframe.install
+files[] = agres_timeframe.module
+files[] = agres_timeframe.views.inc
+
+dependencies[] = date
+dependencies[] = agreservations
+; Information added by Drupal.org packaging script on 2014-06-28
+version = "7.x-3.x-dev"
+core = "7.x"
+project = "agreservations"
+datestamp = "1403984329"
+
