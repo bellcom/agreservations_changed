@@ -290,14 +290,14 @@ function agreservations_node_validate($node, $form, &$form_state) {
     if ($sat || $sun) {
       if (strtotime($dateTime1->format('H:i')) <= strtotime('09:59:59')
           || strtotime($dateTime2->format('H:i')) >= strtotime('22:00:01')) {
-        form_set_error('error', t('Booking tiden skal være fra kl. 16-22 på hverdage og i weekender skal det være muligt hele dagen (10-22) '));
+        form_set_error('error', t('Booking tiden skal være fra kl. 16-22 på hverdage og i weekender skal det være fra kl. 10-22.'));
       }
     }
     else {
 
       if (strtotime($dateTime1->format('H:i')) <= strtotime('15:59:59')
           || strtotime($dateTime2->format('H:i')) >= strtotime('22:00:01')) {
-        form_set_error('error', t('Booking tiden skal være fra kl. 16-22 på hverdage og i weekender skal det være muligt hele dagen (10-22) '));
+        form_set_error('error', t('Booking tiden skal være fra kl. 16-22 på hverdage og i weekender skal det være fra kl. 10-22.'));
       }
     }
   }
