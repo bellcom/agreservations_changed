@@ -42,8 +42,11 @@
 
       <tr>
         <?php $weekend = "";
-              if (date('D',strtotime($roomrow['date'])) == 'Sat' || date('D',strtotime($roomrow['date'])) == 'Sun')
+            $sat = (date('D',strtotime($roomrow['date'])) == 'Sat');
+            $sun = (date('D',strtotime($roomrow['date'])) == 'Sun');
+            if ($sat || $sun) {
               $weekend = "weekend";
+            }
         ?>
           <td style="text-align: center" class="<?php print $weekend; ?>">
             <?php if (date('D',strtotime($roomrow['date'])) == 'Mon'):?>
@@ -74,9 +77,14 @@
                   <a href="/agres_view/day/<?php print $roomrow['date'];?>">Mere info</a>
               </div>
           <?php else: ?>
-            <?php //if (date('D',strtotime($roomrow['date'])) !== 'Sat'): ?>
-             <?php  print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Reservation','default_agres_date'=>$roomrow['date'] . ' 10:00'),'attributes' => array('class' => array('agrcelllink')))) )?>
-           <?php //endif; ?>
+            <?php
+              if ($sat || $sun) {
+                print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Reservation','default_agres_date'=>$roomrow['date'] . ' 10:00'),'attributes' => array('class' => array('agrcelllink')))) );
+              }
+              else {
+                print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Reservation','default_agres_date'=>$roomrow['date'] . ' 16:00'),'attributes' => array('class' => array('agrcelllink')))) );
+              }
+             ?>
           <?php endif; ?>
         </td>
         <?php endforeach; ?>

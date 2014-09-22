@@ -354,9 +354,14 @@ function agreservations_form_alter(&$form, &$form_state, $form_id) {
         $offset = $dateTime1->getOffset();
         $offset = $offset * -1;
         $dateTime1->modify($offset . 'seconds');
+        $dateTime2 = new DateTime($dateTime1->format('Y-m-d') . ' 22:00:00', $dateTimezone1);
+        $offset = $dateTime1->getOffset();
+        $offset = $offset * -1;
+        $dateTime2->modify($offset . 'seconds');
+
         $form['field_agres_rdate'][$form['field_agres_rdate']['#language']][0]['#default_value'] = array(
           'value' => $dateTime1->format('Y-m-d H:i:s'),
-          'value2' => $dateTime1->format('Y-m-d H:i:s'),
+          'value2' =>$dateTime2->format('Y-m-d H:i:s'),
         );
       }
       if (isset($_REQUEST['agres_sel_unit'])) {
