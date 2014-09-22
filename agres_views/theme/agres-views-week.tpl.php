@@ -33,9 +33,8 @@
     </div>
     <table class="agreservations-table">
       <tr>
-        <th class="agreservations-calendar"><?php print "Uge " . date('W',strtotime($rows[0]['date'])) . '</span>'; ?><?php //print $by_hour_count > 0 ? t('units') : ''; ?></th>
+        <th class="agreservations-calendar"><?php print "Uge " . date('W',strtotime($rows[0]['date'])) . '</span>'; ?></th>
         <?php foreach ($rows as $diw => $day): ?>
-        <?php //foreach ($day_names as $cell): ?>
           <th class="agreservations-calendar">
             <?php print '<a href ="/agres_view/day/'.$day['date'] . '">'.t(date('D',strtotime($day['date']))). " - ". date('d/m',strtotime($day['date'])). '</a>'; ?>
           </th>
@@ -49,35 +48,55 @@
               <a href="<?php print(base_path()); ?>node/<?php print $unit->nid ?>"><?php print $unit->title ?></a>
               <span class="agreservations-calendar-hour"></span>
             </td>
-            <?php foreach ($rows as $diw => $day): ?>
-            <?php $weekend = "";
-              if (date('D',strtotime($day['date'])) == 'Sat' || date('D',strtotime($day['date'])) == 'Sun')
-              $weekend = "weekend";
-            ?>
-              <?php if(count($day['items']) > 0)://if (isset($day['night'][$unit->title])) : ?>
-              <td class="agreservations-calendar-agenda-items <?php print $weekend; ?>">
-                  <div>
-                  <?php $start = 8;$i = 0; while($i < 15):?>
 
-                    <?php
-                      $rowspan = 1;
-                      if(strlen($start) == 1) {
-                        $time_str = '0'.$start.":00";
-                      }
-                      else
-                      $time_str = $start . ":00";
-                    ?>
-                    <?php
-                    $booking = array();
+          <?php
+            foreach ($rows as $diw => $day) {
+              $weekend = "";
+              $sat = (date('D',strtotime($day['date'])) == 'Sat');
+              $sun = (date('D',strtotime($day['date'])) == 'Sun');
 
-                    foreach ($day['night'][$unit->title] as $itemnid => $unitbookings): ?>
+              // Sat and sun start at 10 to 21 (22 included), other weekend days start 16 to 21 (22 included)
+              if ($sat || $sun) {
+                $weekend = "weekend";
+                $start = 10;
+                $h = 12;
+              }
+              else {
+                $start = 16;
+                $h = 6;
+              }
 
-                    <?php if (isset($day['night'][$unit->title][$itemnid])) : ?>
-                    <?php
+              $i = 0;
+
+              // If there are booking for the day
+              if (count($day['items']) > 0) {
+                print "<td class='agreservations-calendar-agenda-items ". $weekend . "'>";
+                print "<div>";
+
+                // loop in the hours.
+                while ($i < $h) {
+                  $rowspan = 1;
+                  if(strlen($start) == 1) {
+                    $time_str = '0'.$start.":00";
+                  }
+                  else {
+                    $time_str = $start . ":00";
+                  }
+
+                  $booking = array();
+
+                  foreach ($day['night'][$unit->title] as $itemnid => $unitbookings) {
+
+                    if (isset($day['night'][$unit->title][$itemnid])) {
+
                       $node = node_load($itemnid);
                       $field_start = field_get_items('node',$node,'field_agres_rdate');
-                      $field_start_h = date('H',strtotime($field_start[0]['value'])) + 2;
-                      $field_end_h = date('H',strtotime($field_start[0]['value2'])) + 2;
+                      $tmp_start = new DateTime($field_start[0]['value'], new DateTimeZone($field_start[0]['timezone_db']));
+                      $tmp_start->setTimezone(new DateTimeZone('Europe/Copenhagen'));
+                      $tmp_end = new DateTime($field_start[0]['value2'], new DateTimeZone($field_start[0]['timezone_db']));
+                      $tmp_end->setTimezone(new DateTimeZone('Europe/Copenhagen'));
+                      $field_start_h = date('H',strtotime($tmp_start->format('Y-m-d H:i:s')));
+                      $field_end_h = date('H',strtotime($tmp_end->format('Y-m-d H:i:s')));
                       $field_end_m = date('i',strtotime($field_start[0]['value2']));
 
                       $rowspan = $field_end_h - $field_start_h;
@@ -87,52 +106,76 @@
                         $field_end_h += 1;
                       }
 
-                      ?>
-                      <?php if ($field_start_h == $start) {
+                      if ($field_start_h == $start) {
                         $booking = array(
                           'nid' => $itemnid,
                           'start_h' => $field_start_h,
                           'end_h' => $field_end_h,
                           'rowspan' => $rowspan,
                         );
-                        }?>
-                    <?php endif; ?>
-                    <?php endforeach; ?>
+                        }
+                    }
+                  } // end foreach
 
-                    <?php if(empty($booking)): ?>
-                     <div style="border-top: 1px solid #ccc;border-collapse: collapse; border-spacing: 0;">
-                          <a class="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $day['date'] ?> <?php print $time_str; ?> "> <?php print $time_str; ?> </a>
-                      </div>
-                     <?php $rpan = 1;?>
-                     <?php else: ?>
-                        <div class="agreservations-calendar-agenda-items" <?php print isset($spaninfo[$unit->title][$itemnid]) ? "rowspan=" . $spaninfo[$unit->title][$booking['nid']] : ""; ?> >
-                           <?php print ($day['night'][$unit->title][$booking['nid']]); ?>
-                        </div>
-                     <?php $rpan = $booking['rowspan'];?>
-                     <?php endif;?>
-                  <?php $start += $rpan; $i += $rpan; endwhile;?>
+                  if (empty($booking)) {
+                    print '<div style="border-top: 1px solid #ccc;border-collapse: collapse; border-spacing: 0;">';
+                    print '<a class="agrcelllink" style = "text-align:center;" href="' . base_path() . 'node/add/agreservation?&agres_sel_unit=' . $unit->nid .
+                    '&default_agres_title=Reservation&default_agres_date=' . $day['date'] . $time_str . ' ">' . $time_str . '</a>';
+                    print '</div>';
+                    $rpan = 1;
+                  }
+                  else {
+                    print '<div class="agreservations-calendar-agenda-items"';
+                    $rows_pan = isset($spaninfo[$unit->title][$itemnid]) ? $spaninfo[$unit->title][$booking['nid']] : '';
+                    print 'rowspan="' . $rows_pan . '">';
+                    print $day['night'][$unit->title][$booking['nid']];
+                    print '</div>';
+                    $rpan = $booking['rowspan'];
+                  }
+                  $start += $rpan;
+                  $i += $rpan;
+                } // end while.
+                print "
                   </div>
-              </td>
-              <?php else: ?>
-                <td class="agreservations-calendar-agenda-items <?php print $weekend; ?>">
-                  <table>
-                  <?php $start = 8;$i = 0; while($i < 15):?>
-                    <?php 
-                      $time_str = $start . ":00";
-                    ?>
-                    <tr>
-                      <td>
-                      <a class="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print$day['date'] ?> <?php print $time_str; ?> "> <?php print $time_str; ?> </a>
-                      </td>
-                    </tr>
-                  <?php $start += 1; $i += 1; endwhile;?>
-                  </table>
-                  <?php //print ($day['datebox']); ?>
-                </td>
-              <?php endif; ?>
-            <?php endforeach; ?>
-          </tr>
-        <?php endforeach; ?>
+              </td>";
+            } // end if count($day['items']) > 0
+
+            else {
+              print '<td class="agreservations-calendar-agenda-items ' . $weekend . '">';
+              print  '<table>';
+
+              // Sat and sun start at 10 to 21 (22 included), other weekend days start 16 to 21 (22 included)
+              if ($sat || $sun) {
+                $weekend = "weekend";
+                $start = 10;
+                $h = 12;
+              }
+              else {
+                $start = 16;
+                $h = 6;
+              }
+              $i = 0;
+              // Empty days.
+              while($i < $h) {
+
+                $time_str = $start . ":00";
+
+                print '<tr>
+                      <td>';
+                print '<a class="agrcelllink" style = "text-align:center;" href="' . base_path() . 'node/add/agreservation?&agres_sel_unit=' . $unit->nid .
+                '&default_agres_title=Reservation&default_agres_date=' . $day['date'] . $time_str . '">' . $time_str . '</a>';
+                print '</td>
+                    </tr>';
+                $start += 1;
+                $i += 1;
+              } // end while
+            print '</table>
+                </td>';
+            }
+          } // end foreach
+          ?>
+        </tr>
+      <?php endforeach; ?>
       </tbody>
     </table>
   </div>
