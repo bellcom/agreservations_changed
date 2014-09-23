@@ -106,15 +106,15 @@ function _agres_rconflict_display_conflict_errors($node, $conflicting_nodes) {
 //           $date_start_timezone->modify($offset . 'seconds');
           
           $startobj = new DateObject($conflicting_node->{$date_field}[$lang][0]['value'],variable_get('date_default_timezone', date_default_timezone_get()));
-           $offset = $startobj->getOffset();
-           $offset = $offset * 1;
-           $startobj->modify($offset . 'seconds');          
-          $start = $startobj->format('Y-m-d H:i');
+          $offset = $startobj->getOffset();
+          $offset = $offset * 1;
+          $startobj->modify($offset . 'seconds');
+          $start = $startobj->format('d.m.Y H:i');
           $endobj = new DateObject($conflicting_node->{$date_field}[$lang][0]['value2'],variable_get('date_default_timezone', date_default_timezone_get()));
-           $offset = $endobj->getOffset();
-           $offset = $offset * 1;
-           $endobj->modify($offset . 'seconds');          
-          $end = $endobj->format('Y-m-d H:i');
+          $offset = $endobj->getOffset();
+          $offset = $offset * 1;
+          $endobj->modify($offset . 'seconds');
+          $end = $endobj->format('d.m.Y H:i');
 //           $offset = $date_start_timezone->getOffset();
 //           $offset = $offset * 1;
 //           $date_start_timezone->modify($offset . 'seconds');   //variable_get('date_default_timezone', date_default_timezone_get())
