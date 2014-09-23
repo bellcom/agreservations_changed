@@ -1765,6 +1765,21 @@ function _agreservations_show_date2($res,$format = 'Y-m-d H:i:s') {
   return $retstrdate;
 }
 
+/**
+ * Implements hook_menu_alter().
+ */
+function agreservations_menu_alter(&$items) {
+  $items['node/%publishcontent_tab/unpublish/%publishcontent_security_token']['title callback'] = 'agreservations_view_tab_title';
+  $items['node/%publishcontent_tab/unpublish/%publishcontent_security_token']['title arguments'] = array(1);
+}
+
+function agreservations_view_tab_title($node) {
+  if ($node->type == 'agreservation') {
+    return t('Slet booking');
+  }
+  return t('unpublish');
+}
+
 function agreservations_mail($key, &$message, $params) {
 //  if (isset($params['subject'])) {
 //    $message['subject'] = $params['subject'];
