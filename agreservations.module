@@ -1769,8 +1769,11 @@ function _agreservations_show_date2($res,$format = 'Y-m-d H:i:s') {
  * Implements hook_menu_alter().
  */
 function agreservations_menu_alter(&$items) {
+
   $items['node/%publishcontent_tab/unpublish/%publishcontent_security_token']['title callback'] = 'agreservations_view_tab_title';
   $items['node/%publishcontent_tab/unpublish/%publishcontent_security_token']['title arguments'] = array(1);
+  $items['node/%publishcontent_tab/publish/%publishcontent_security_token']['page callback'] = 'agreservations_publishcontent_toggle_status';
+
 }
 
 function agreservations_view_tab_title($node) {
@@ -1780,6 +1783,88 @@ function agreservations_view_tab_title($node) {
   return t('unpublish');
 }
 
+function agreservations_publishcontent_toggle_status($node) {
+  // XOR the current status with 1 to get the opposite value.
+  // If this content type specifies that a new revision should be created on
+  // editing, then make sure to respect this option.
+  $node_options = variable_get('node_options_' . $node->type, array());
+  if (in_array('revision', $node_options)) {
+    $node->revision = 1;
+  }
+
+  // Save the status we want to set.
+  $status = $node->status;
+
+  // check if there is a conflict node.
+
+  // Find the date field to use for time overlapping_node_ids detection.
+  $date_field = 'field_agres_rdate';
+  $overlapping_node_ids = array();
+  if (strpos($date_field, 'field_', 0) === 0) {
+    $tlangs1 = array();
+    $alllangs = array();
+    $tlangs1 = language_list();
+    $alllangs = array_merge($tlangs1, array('und' => ''));
+    $alllangs = array_keys($alllangs);
+    foreach ($alllangs as $lang) {
+
+      if (!isset($node->{$date_field}[$lang])) {
+        continue;
+      }
+
+      // Get the start and end Date of the current node
+      $start = $node->{$date_field}[$lang][0]['value'];
+      $end = $node->{$date_field}[$lang][0]['value2'];
+
+      // Get all conflicting Date nodes
+      if (!empty($start) && !empty($end)) {
+        $overlapping_node_ids = _agres_rconflict_overlaps_from_date($start, $end);
+      }
+      else {
+        // If we got here, someone broke the requirements, so turn off resource 
+        // conflict for this type and notify an admin.
+      }
+    }
+  }
+  if (!empty($node->event_start)) {
+    // Get all overlapping events
+    $tmp = _agres_rconflict_overlaps_from_event($node->event_start, $node->event_end);
+    $overlapping_node_ids = array_unique(array_merge($overlapping_node_ids, $tmp));
+  }
+
+  // Load conflicting nodes
+  $conflicting_nodes = array();
+  foreach ($overlapping_node_ids as $nid) {
+    // Don't have the node conflict with itself
+    if ($nid != $node->nid) {
+      $conflicting_nodes[$nid] = node_load($nid);
+    }
+  }
+  // Display conflict errors
+  _agres_rconflict_display_conflict_errors($node, $conflicting_nodes);
+  // Try to update the node.
+
+  if (empty($conflicting_nodes)) {
+    $node->status = $node->status ^ 1;
+
+    node_save($node);
+  }
+
+  // Validate the status has changed.
+  if ($node->status) {
+    // Everything went well.
+    drupal_set_message(_publishcontent_get_message($node->nid, $node->title, $node->status));
+  }
+  else {
+    // Prevent the user something went wrong.
+    drupal_set_message(t('The status of the node could not be updated.'), 'error');
+  }
+
+  // Clear the page and block caches.
+  cache_clear_all();
+
+  drupal_goto($_SERVER['HTTP_REFERER']);
+}
 function agreservations_mail($key, &$message, $params) {
 //  if (isset($params['subject'])) {
 //    $message['subject'] = $params['subject'];
