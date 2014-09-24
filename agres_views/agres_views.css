@@ -81,7 +81,7 @@ div.agres_item a{
   text-align: center;
   padding: 0px;
   margin: 3em;
-  font-size:smaller;
+  font-size: 14px;
 
 
 }
@@ -161,7 +161,7 @@ div.agres_item a{
   clear:both;
   font-style: normal;
   color: #000;
-  font-size: 0.8em;
+  font-size: 14px;
 }
 .agreservations-calendar .month a,
 .agreservations-calendar .week a {
@@ -226,7 +226,7 @@ div.agres_item a{
   margin:0;
 }
 .agreservations-calendar th.agreservations-calendar-agenda-hour .agreservations-calendar-hour {
-  font-size: 1.1em;
+  font-size: 14px;
   padding: 1px;
   margin:0;
 }
@@ -254,7 +254,7 @@ table.agreservations-table tbody tr td div.month  {
   border-width: 0 0 0px 0px;
   clear: none;
   width:70%;
-  font-size:12px;
+  font-size:14px;
 }
 /*  individual node container  */
 .agreservations-calendar div.calendar {
@@ -275,7 +275,7 @@ table.agreservations-table tbody tr td div.month  {
 }
 
 .agreservations-calendar div.title {
-  font-size:.8em;
+  font-size: 14px;
   text-align:center;
 }
 
@@ -555,7 +555,7 @@ table.agreservations-legend tr.even .stripe {
   color:#fff;
   margin:auto;
   padding:0px 2px;
-  font-size:12px;
+  font-size:14px;
   -moz-border-radius : 5px 5px  5px  5px;
   border-radius : 5px 5px  5px  5px;
 }
