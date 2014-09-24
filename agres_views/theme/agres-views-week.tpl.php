@@ -36,7 +36,7 @@
         <th class="agreservations-calendar"><?php print "Uge " . date('W',strtotime($rows[0]['date'])) . '</span>'; ?></th>
         <?php foreach ($rows as $diw => $day): ?>
           <th class="agreservations-calendar">
-            <?php print '<a href ="/agres_view/day/'.$day['date'] . '">'.t(date('D',strtotime($day['date']))). " - ". date('d/m',strtotime($day['date'])). '</a>'; ?>
+            <?php print '<a href ="/agres_view/day/'.$day['date'] . '">'.t(date('D',strtotime($day['date']))). " ". date('d.m.Y',strtotime($day['date'])). '</a>'; ?>
           </th>
         <?php endforeach; ?>
       </tr>
@@ -77,10 +77,10 @@
                 while ($i < $h) {
                   $rowspan = 1;
                   if(strlen($start) == 1) {
-                    $time_str = '0'.$start.":00";
+                    $time_str = '0'.$start.".00";
                   }
                   else {
-                    $time_str = $start . ":00";
+                    $time_str = $start . ".00";
                   }
 
                   $booking = array();
@@ -95,8 +95,8 @@
                       $tmp_start->setTimezone(new DateTimeZone('Europe/Copenhagen'));
                       $tmp_end = new DateTime($field_start[0]['value2'], new DateTimeZone($field_start[0]['timezone_db']));
                       $tmp_end->setTimezone(new DateTimeZone('Europe/Copenhagen'));
-                      $field_start_h = date('H',strtotime($tmp_start->format('Y-m-d H:i:s')));
-                      $field_end_h = date('H',strtotime($tmp_end->format('Y-m-d H:i:s')));
+                      $field_start_h = date('H',strtotime($tmp_start->format('Y-m-d H.i.s')));
+                      $field_end_h = date('H',strtotime($tmp_end->format('Y-m-d H.i.s')));
                       $field_end_m = date('i',strtotime($field_start[0]['value2']));
 
                       $rowspan = $field_end_h - $field_start_h;
@@ -158,7 +158,7 @@
               // Empty days.
               while($i < $h) {
 
-                $time_str = $start . ":00";
+                $time_str = $start . ".00";
 
                 print '<tr>
                       <td>';

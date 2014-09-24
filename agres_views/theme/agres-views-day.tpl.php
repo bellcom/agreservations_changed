@@ -45,7 +45,7 @@
 
           <?php foreach ($units as $unit): ?>
             <th><?php print "Uge " . date('W',strtotime($rows['date'])) . '</span>'; ?>
-              <?php print date('d/m/Y', strtotime($rows['date'])); ?>
+              <?php print " - " . t(date('D',strtotime($rows['date']))) . " " . date('d.m.Y', strtotime($rows['date'])); ?>
             </th>
             <th class="agreservations-calendar unitname"><a href="<?php print(base_path()); ?>node/<?php print $unit->nid ?>"><?php print $unit->title ?></a>
             </th>
@@ -80,7 +80,7 @@
                    $item = "Overskrifter";
               ?>
               <td>
-                 <?php print date('H:i', strtotime($hour['hour'])); ?>
+                 <?php print date('H.i', strtotime($hour['hour'])); ?>
               </td>
               <?php if ($hour['values'][$item.'-0'] != '***busy***' ) : ?>
                 <td class="agreservations-calendar <?php if (isset($hour['span'][$item.'-0'])) print " agreservations-inner"; ?>" rowspan="<?php print isset($hour['span']) ? $hour['span'][$item.'-0'] : 1; ?>"><?php print $hour['values'][$item.'-0'];?></a>
@@ -93,11 +93,11 @@
               <?php endif; ?>
             <?php else: ?>
             <td>
-               <?php print date('H:i', strtotime($hour['hour'])); ?>
+               <?php print date('H.i', strtotime($hour['hour'])); ?>
             </td>
             <td class="agreservations-agenda-items">
                       <div class="agreservations-calendar">
-                          <a class ="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $currentselectedday ?> <?php print $hour['hour']; ?>"> <?php print date('H:i', strtotime($hour['hour'])); ?></a>
+                          <a class ="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $currentselectedday ?> <?php print $hour['hour']; ?>"> <?php print date('H.i', strtotime($hour['hour'])); ?></a>
                       </div>
                   </td>
             <?php endif; ?>

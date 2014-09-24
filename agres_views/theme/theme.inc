@@ -1209,7 +1209,7 @@ function template_preprocess_agres_views_datebox(&$vars) {
   $xtempurl = date_pager_url($view, NULL, $date, $force_view_url);
   $vars['url'] = str_replace(array($month_path, $year_path, $week_path), $day_path, $xtempurl);
 //  $vars['link'] = !empty($day_path) ? l($vars['day'], $vars['url']) : $vars['day'];
-  $vars['link'] = l(t(date('D',strtotime($vars['date']))) . " - " . date('d-m-Y',strtotime($vars['date'])), $base_url.'/agres_view/day/'.$date);
+  $vars['link'] = l(t(date('D',strtotime($vars['date']))) . " " . date('d.m.Y',strtotime($vars['date'])), $base_url.'/agres_view/day/'.$date);
 //drupal_set_message('<pre>cssssssutemplate_preprocess_agres_views_datebox '.print_r($vars['link'],true).'</pre>');
   $vars['granularity'] = $view->date_info->granularity;
   $vars['mini'] = !empty($view->date_info->mini);
