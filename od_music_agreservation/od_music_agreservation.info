@@ -1,0 +1,12 @@
+name = Od music school agreservation
+core = 7.x
+package = Features
+dependencies[] = agres_views
+dependencies[] = date_views
+dependencies[] = views
+features[ctools][] = views:views_default:3.0
+features[features_api][] = api:2
+features_exclude[dependencies][agres_views] = agres_views
+features_exclude[dependencies][date_views] = date_views
+features_exclude[dependencies][views] = views
+features_exclude[dependencies][ctools] = ctools

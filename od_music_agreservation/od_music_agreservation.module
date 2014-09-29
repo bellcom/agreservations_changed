@@ -1,0 +1,26 @@
+<?php
+/**
+ * @file
+ * Code for the Od_music_agreservation feature.
+ */
+
+include_once 'od_music_agreservation.features.inc';
+function od_music_agreservation_form_alter(&$form, &$form_state, $form_id) {
+
+  if ($form_id == 'agreservation_node_form') {
+      hide($form['field_agres_orderid']);
+      hide($form['field_agres_status']);
+      hide($form['field_agres_ref_unit']);
+      if (!user_access('administer site configuration')) {
+        unset($form['options']);
+        //$form['options']['status']['#default_value'] = 1;
+        //$form['#node']->status = 1;
+        //$node->status = 1;
+      }
+      $nid = $form['nid']['#value'];
+      if (!$nid) {
+        global $user,$language;
+        $form['field_agres_userref']['und'][0]['uid']['#default_value'] = $user->uid;
+      }
+  }
+}
