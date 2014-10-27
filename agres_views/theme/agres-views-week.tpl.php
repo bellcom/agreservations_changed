@@ -120,7 +120,7 @@
                   if (empty($booking)) {
                     print '<div style="border-top: 1px solid #ccc;border-collapse: collapse; border-spacing: 0;">';
                     print '<a class="agrcelllink" style = "text-align:center;" href="' . base_path() . 'node/add/agreservation?&agres_sel_unit=' . $unit->nid .
-                    '&default_agres_title=Reservation&default_agres_date=' . $day['date'] . $time_str . ' ">' . $time_str . '</a>';
+                    '&default_agres_title=&Oslash;vetid&default_agres_date=' . $day['date'] . $time_str . ' ">' . $time_str . '</a>';
                     print '</div>';
                     $rpan = 1;
                   }
@@ -163,7 +163,7 @@
                 print '<tr>
                       <td>';
                 print '<a class="agrcelllink" style = "text-align:center;" href="' . base_path() . 'node/add/agreservation?&agres_sel_unit=' . $unit->nid .
-                '&default_agres_title=Reservation&default_agres_date=' . $day['date'] . $time_str . '">' . $time_str . '</a>';
+                '&default_agres_title=&Oslash;vetid&default_agres_date=' . $day['date'] . $time_str . '">' . $time_str . '</a>';
                 print '</td>
                     </tr>';
                 $start += 1;

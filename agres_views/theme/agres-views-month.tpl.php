@@ -79,10 +79,10 @@
           <?php else: ?>
             <?php
               if ($sat || $sun) {
-                print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Reservation','default_agres_date'=>$roomrow['date'] . ' 10:00'),'attributes' => array('class' => array('agrcelllink')))) );
+                print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Øvetid','default_agres_date'=>$roomrow['date'] . ' 10:00'),'attributes' => array('class' => array('agrcelllink')))) );
               }
               else {
-                print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Reservation','default_agres_date'=>$roomrow['date'] . ' 16:00'),'attributes' => array('class' => array('agrcelllink')))) );
+                print(l( "&nbsp;", 'node/add/agreservation', array('html'=>true,'query' => array('agres_sel_unit'=>$unit->nid,'default_agres_title' => 'Øvetid','default_agres_date'=>$roomrow['date'] . ' 16:00'),'attributes' => array('class' => array('agrcelllink')))) );
               }
              ?>
           <?php endif; ?>

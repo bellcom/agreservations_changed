@@ -86,7 +86,7 @@
                 <td class="agreservations-calendar <?php if (isset($hour['span'][$item.'-0'])) print " agreservations-inner"; ?>" rowspan="<?php print isset($hour['span']) ? $hour['span'][$item.'-0'] : 1; ?>"><?php print $hour['values'][$item.'-0'];?></a>
                 <?php if (!isset($hour['span'][$item.'-0'])) : ?>
                     <div class="agreservations-calendar">
-                    <!--<a href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $currentselectedday ?> <?php print $hour['hour']; ?>">+</a>-->
+                    <!--<a href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=&Oslash;vetid&default_agres_date=<?php print $currentselectedday ?> <?php print $hour['hour']; ?>">+</a>-->
                               </div>
                     <?php endif; ?>
                 </td>
@@ -97,7 +97,7 @@
             </td>
             <td class="agreservations-agenda-items">
                       <div class="agreservations-calendar">
-                          <a class ="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=Reservation&default_agres_date=<?php print $currentselectedday ?> <?php print $hour['hour']; ?>"> <?php print date('H.i', strtotime($hour['hour'])); ?></a>
+                          <a class ="agrcelllink" style = "text-align:center;" href="<?php print(base_path()); ?>node/add/agreservation?&agres_sel_unit=<?php print $unit->nid ?>&default_agres_title=&Oslash;vetid&default_agres_date=<?php print $currentselectedday ?> <?php print $hour['hour']; ?>"> <?php print date('H.i', strtotime($hour['hour'])); ?></a>
                       </div>
                   </td>
             <?php endif; ?>
