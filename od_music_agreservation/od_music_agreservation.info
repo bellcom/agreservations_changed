@@ -1,6 +1,7 @@
 name = Od music school agreservation
 core = 7.x
 package = Features
+dependencies[] = taxonomy
 dependencies[] = agres_views
 dependencies[] = date
 dependencies[] = date_views
