@@ -30,7 +30,7 @@ function od_music_agreservation_node_info() {
       'base' => 'node_content',
       'description' => t('Enter reservations for Units with from and to time.'),
       'has_title' => '1',
-      'title_label' => t('Arrangement'),
+      'title_label' => t('Title'),
       'help' => '',
     ),
     'agreservation_unit_info' => array(

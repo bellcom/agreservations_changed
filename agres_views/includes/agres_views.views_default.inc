@@ -51,9 +51,9 @@ $handler->display->display_options['cache']['type'] = 'none';
 $handler->display->display_options['query']['type'] = 'views_query';
 $handler->display->display_options['query']['options']['query_comment'] = FALSE;
 $handler->display->display_options['exposed_form']['type'] = 'basic';
-$handler->display->display_options['exposed_form']['options']['submit_button'] = 'Udf¿r';
+$handler->display->display_options['exposed_form']['options']['submit_button'] = 'Udfï¿½r';
 $handler->display->display_options['exposed_form']['options']['reset_button_label'] = 'Gendan';
-$handler->display->display_options['exposed_form']['options']['exposed_sorts_label'] = 'SortŽr efter';
+$handler->display->display_options['exposed_form']['options']['exposed_sorts_label'] = 'Sortï¿½r efter';
 $handler->display->display_options['exposed_form']['options']['sort_asc_label'] = 'Stigende';
 $handler->display->display_options['exposed_form']['options']['sort_desc_label'] = 'Faldende';
 $handler->display->display_options['pager']['type'] = 'date_views_pager';
@@ -214,7 +214,7 @@ $handler->display->display_options['menu']['weight'] = '0';
 $handler->display->display_options['menu']['name'] = 'main-menu';
 $handler->display->display_options['menu']['context'] = 0;
 $handler->display->display_options['tab_options']['type'] = 'normal';
-$handler->display->display_options['tab_options']['title'] = 'Booking Calendar';
+$handler->display->display_options['tab_options']['title'] = 'Kalender';
 $handler->display->display_options['tab_options']['weight'] = '0';
 $handler->display->display_options['tab_options']['name'] = 'main-menu';
 
@@ -501,9 +501,9 @@ $translatables['agres_view'] = array(
   t('Master'),
   t('Booking Calendar'),
   t('mere'),
-  t('Udf¿r'),
+  t('Udfï¿½r'),
   t('Gendan'),
-  t('SortŽr efter'),
+  t('Sortï¿½r efter'),
   t('Stigende'),
   t('Faldende'),
   t('Booking Date'),
